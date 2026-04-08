@@ -1030,6 +1030,11 @@
           "id": "postgres-explorer",
           "title": "PG Studio",
           "icon": "resources/postgres-vsc-icon.png"
+        },
+        {
+          "id": "postgres-sql-assistant",
+          "title": "SQL Assistant",
+          "icon": "resources/sql-assistant-vsc-icon.png"
         }
       ]
     },
@@ -1042,29 +1047,33 @@
           "icon": "resources/postgres-vsc-icon.png"
         },
         {
+          "id": "postgresExplorer.notebooks",
+          "name": "Notebooks",
+          "contextualTitle": "PG Studio",
+          "icon": "$(notebook)"
+        },
+        {
           "id": "postgresExplorer.savedQueries",
           "name": "Saved Queries",
           "contextualTitle": "PG Studio",
-          "icon": "$(save)"
-        },
-        {
-          "id": "postgresExplorer.chatView",
-          "name": "SQL Assistant",
-          "type": "webview",
-          "contextualTitle": "PG Studio",
-          "icon": "resources/sql-assistant-vsc-icon.png"
+          "icon": "$(save)",
+          "visibility": "collapsed"
         },
         {
           "id": "postgresExplorer.history",
           "name": "Query History",
           "contextualTitle": "PG Studio",
-          "icon": "$(history)"
-        },
+          "icon": "$(history)",
+          "visibility": "collapsed"
+        }
+      ],
+      "postgres-sql-assistant": [
         {
-          "id": "postgresExplorer.notebooks",
-          "name": "Notebooks",
-          "contextualTitle": "PG Studio",
-          "icon": "$(notebook)"
+          "id": "postgresExplorer.chatView",
+          "name": "SQL Assistant",
+          "type": "webview",
+          "contextualTitle": "SQL Assistant",
+          "icon": "resources/sql-assistant-vsc-icon.png"
         }
       ]
     },
