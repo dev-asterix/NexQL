@@ -24,10 +24,19 @@
                     <div class="section-title">AI Provider Configuration</div>
                 </div>
 
+                <div id="githubAuthBanner" class="info-box info hidden">
+                    <span class="info-box-icon">🔐</span>
+                    <div>
+                        <strong>GitHub account access</strong>
+                        <div id="githubAuthStatusText">Not connected</div>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="provider">AI Provider</label>
                     <select id="provider" required>
                         <option value="vscode-lm">VS Code Language Model (GitHub Copilot)</option>
+                        <option value="github">GitHub Models (GitHub account)</option>
                         <option value="openai">OpenAI (GPT-4, GPT-3.5)</option>
                         <option value="anthropic">Anthropic (Claude)</option>
                         <option value="gemini">Google Gemini</option>
@@ -57,6 +66,37 @@
                             <option value="">Select a model...</option>
                         </select>
                         <input type="text" id="model-vscode-lm" placeholder="Leave empty for default or select from list">
+                    </div>
+                </div>
+
+                <!-- GitHub Models Details -->
+                <div id="provider-github" class="provider-details">
+                    <div class="info-box info">
+                        <span class="info-box-icon">🧑‍💻</span>
+                        <div>
+                            <strong>GitHub Models</strong>
+                            Sign in with your GitHub account to use the GitHub Models catalog and chat inference API.
+                        </div>
+                    </div>
+                    <div class="github-auth-actions">
+                        <button type="button" id="githubConnectBtn" class="btn-secondary">
+                            <span class="btn-icon">↗</span><span>Connect GitHub</span>
+                        </button>
+                        <button type="button" id="githubDisconnectBtn" class="btn-secondary">
+                            <span class="btn-icon">⎋</span><span>Disconnect</span>
+                        </button>
+                    </div>
+                    <div class="form-group">
+                        <label for="model-github">
+                            Model
+                            <span class="label-description">
+                                <button type="button" class="btn-link list-models-btn" data-provider="github">List available models</button>
+                            </span>
+                        </label>
+                        <select id="model-github-select" class="hidden">
+                            <option value="">Select a model...</option>
+                        </select>
+                        <input type="text" id="model-github" placeholder="openai/gpt-4.1">
                     </div>
                 </div>
 

@@ -7,6 +7,13 @@ import * as http from 'http';
 import { ChatMessage } from './types';
 import { SecretStorageService } from '../../services/SecretStorageService';
 
+// GitHub Models permission applies to fine-grained tokens/GitHub Apps.
+// For VS Code OAuth sessions, request no explicit scope.
+const GITHUB_MODELS_SCOPES: string[] = [];
+const GITHUB_MODELS_API_BASE = 'https://models.github.ai';
+const GITHUB_MODELS_API_VERSION = '2026-03-10';
+const DEFAULT_GITHUB_MODEL = 'openai/gpt-4.1';
+
 export class AiService {
   private _messages: ChatMessage[] = [];
   private _cancellationTokenSource: vscode.CancellationTokenSource | null = null;
@@ -612,9 +619,10 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
 
   async callDirectApi(provider: string, userMessage: string, config: vscode.WorkspaceConfiguration, customSystemPrompt?: string): Promise<{ text: string, usage?: string }> {
     const apiKey = await this._getDirectApiKey(config);
+    const githubSession = provider === 'github' ? await this._getGitHubSession() : undefined;
     
     // API key is required for most providers, but optional for custom endpoints
-    if (!apiKey && provider !== 'custom' && provider !== 'ollama' && provider !== 'lmstudio') {
+    if (!apiKey && provider !== 'custom' && provider !== 'ollama' && provider !== 'lmstudio' && provider !== 'github') {
       throw new Error(`API Key is required for ${provider} provider. Please configure postgresExplorer.aiApiKey.`);
     }
 
@@ -756,6 +764,33 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
       messages.push({ role: 'user', content: userMessage });
 
       body = { model, messages };
+    } else if (provider === 'github') {
+      if (!githubSession) {
+        throw new Error('Sign in to GitHub in AI Settings to use GitHub Models.');
+      }
+
+      endpoint = `${GITHUB_MODELS_API_BASE}/inference/chat/completions`;
+      model = model || DEFAULT_GITHUB_MODEL;
+
+      const messages: any[] = [];
+      if (systemPrompt) {
+        messages.push({ role: 'system', content: systemPrompt });
+      }
+      messages.push(...conversationHistory);
+      messages.push({ role: 'user', content: userMessage });
+
+      headers = {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${githubSession.accessToken}`,
+        'X-GitHub-Api-Version': GITHUB_MODELS_API_VERSION,
+        'Content-Type': 'application/json'
+      };
+
+      body = {
+        model,
+        messages,
+        temperature: 0.7
+      };
     } else {
       throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -769,6 +804,17 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
       return secretApiKey || config.get<string>('aiApiKey') || '';
     } catch {
       return config.get<string>('aiApiKey') || '';
+    }
+  }
+
+  private async _getGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
+    try {
+      return await vscode.authentication.getSession('github', GITHUB_MODELS_SCOPES, {
+        silent: true,
+        clearSessionPreference: false
+      });
+    } catch {
+      return undefined;
     }
   }
 
@@ -897,6 +943,7 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
 
   private _getDefaultModel(provider: string): string {
     switch (provider) {
+      case 'github': return DEFAULT_GITHUB_MODEL;
       case 'openai': return 'gpt-4o';
       case 'anthropic': return 'claude-3-5-sonnet-20241022';
       case 'gemini': return 'gemini-1.5-flash';

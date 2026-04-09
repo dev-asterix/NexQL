@@ -4,6 +4,11 @@ const providerSelect = document.getElementById('provider');
 const testBtn = document.getElementById('testBtn');
 const saveBtn = document.getElementById('saveBtn');
 const messageDiv = document.getElementById('message');
+const githubBanner = document.getElementById('githubAuthBanner');
+const githubStatusText = document.getElementById('githubAuthStatusText');
+const githubConnectBtn = document.getElementById('githubConnectBtn');
+const githubDisconnectBtn = document.getElementById('githubDisconnectBtn');
+let githubAuthState = { connected: false, accountLabel: '' };
 
 // Request to load current settings
 vscode.postMessage({ command: 'loadSettings' });
@@ -22,7 +27,7 @@ providerSelect.addEventListener('change', () => {
 
   // Auto-load models for the new provider
   const formData = getFormData();
-  autoLoadModels(provider, formData.apiKey, formData.endpoint);
+  autoLoadModels(provider, formData.apiKey, formData.endpoint, { allowPrompt: githubAuthState.connected });
 });
 
 function showMessage(text, isError = false) {
@@ -37,7 +42,8 @@ function hideMessage() {
   messageDiv.className = 'status-line';
 }
 
-function autoLoadModels(provider, apiKey, endpoint) {
+function autoLoadModels(provider, apiKey, endpoint, options = {}) {
+  const allowPrompt = options.allowPrompt !== false;
   // Auto-load models for providers where it's possible
   if (provider === 'vscode-lm') {
     // Always load VS Code LM models
@@ -45,6 +51,13 @@ function autoLoadModels(provider, apiKey, endpoint) {
       command: 'listModels',
       settings: { provider: 'vscode-lm', apiKey: '', endpoint: '' }
     });
+  } else if (provider === 'github') {
+    if (allowPrompt) {
+      vscode.postMessage({
+        command: 'listModels',
+        settings: { provider: 'github', apiKey: '', endpoint: '' }
+      });
+    }
   } else if (provider === 'anthropic') {
     // Prefer to fetch Anthropic models from the API when API key is provided
     if (apiKey && apiKey.length > 0) {
@@ -115,6 +128,12 @@ function getFormData() {
     model = (selectEl && !selectEl.classList.contains('hidden') && selectEl.value)
       ? selectEl.value
       : inputEl.value;
+  } else if (provider === 'github') {
+    const selectEl = document.getElementById('model-github-select');
+    const inputEl = document.getElementById('model-github');
+    model = (selectEl && !selectEl.classList.contains('hidden') && selectEl.value)
+      ? selectEl.value
+      : inputEl.value;
   } else if (provider === 'custom') {
     apiKey = document.getElementById('apiKey-custom').value;
     model = document.getElementById('model-custom').value;
@@ -145,6 +164,8 @@ function setFormData(settings) {
   } else if (settings.provider === 'gemini') {
     document.getElementById('apiKey-gemini').value = settings.apiKey || '';
     document.getElementById('model-gemini').value = settings.model || '';
+  } else if (settings.provider === 'github') {
+    document.getElementById('model-github').value = settings.model || '';
   } else if (settings.provider === 'custom') {
     document.getElementById('apiKey-custom').value = settings.apiKey || '';
     document.getElementById('model-custom').value = settings.model || '';
@@ -189,12 +210,22 @@ document.querySelectorAll('.list-models-btn').forEach(btn => {
     const provider = this.getAttribute('data-provider');
     const settings = getFormData();
 
-      if ((provider === 'openai' || provider === 'gemini' || provider === 'anthropic') && !settings.apiKey) {
+    if ((provider === 'openai' || provider === 'gemini' || provider === 'anthropic') && !settings.apiKey) {
       showMessage('Please enter an API key first', true);
       return;
     }
 
-      // VS Code LM does not require an API key
+    if (provider === 'github') {
+      this.disabled = true;
+      this.textContent = 'Loading models...';
+      vscode.postMessage({
+        command: 'listModels',
+        settings: { provider: 'github', apiKey: '', endpoint: '' }
+      });
+      return;
+    }
+
+    // VS Code LM does not require an API key
     if (provider === 'custom' && !settings.endpoint) {
       showMessage('Please enter an endpoint first', true);
       return;
@@ -216,7 +247,7 @@ document.querySelectorAll('.list-models-btn').forEach(btn => {
 });
 
 // Model select change handlers
-['vscode-lm', 'openai', 'anthropic', 'gemini', 'ollama', 'lmstudio'].forEach(provider => {
+['vscode-lm', 'github', 'openai', 'anthropic', 'gemini', 'ollama', 'lmstudio'].forEach(provider => {
   const selectEl = document.getElementById('model-' + provider + '-select');
   const inputEl = document.getElementById('model-' + provider);
   if (selectEl && inputEl) {
@@ -258,6 +289,14 @@ window.addEventListener('message', event => {
   testBtn.innerHTML = '<span class="btn-icon">⚡</span><span>Test Connection</span>';
   saveBtn.disabled = false;
   saveBtn.innerHTML = '<span class="btn-icon">✓</span><span>Save Settings</span>';
+  if (githubConnectBtn) {
+    githubConnectBtn.disabled = false;
+    githubConnectBtn.innerHTML = '<span class="btn-icon">↗</span><span>Connect GitHub</span>';
+  }
+  if (githubDisconnectBtn) {
+    githubDisconnectBtn.disabled = false;
+    githubDisconnectBtn.innerHTML = '<span class="btn-icon">⎋</span><span>Disconnect</span>';
+  }
 
   // Reset list models buttons
   document.querySelectorAll('.list-models-btn').forEach(btn => {
@@ -280,10 +319,13 @@ window.addEventListener('message', event => {
       break;
     case 'settingsLoaded':
       setFormData(message.settings);
+      updateGitHubAuthStatus(message.settings.githubAuth);
       // Auto-load models for the current provider
       const settings = message.settings;
       if (settings && settings.provider) {
-        autoLoadModels(settings.provider, settings.apiKey || '', settings.endpoint || '');
+        autoLoadModels(settings.provider, settings.apiKey || '', settings.endpoint || '', {
+          allowPrompt: !!settings.githubAuth?.connected
+        });
       }
       break;
     case 'modelsListed':
@@ -293,8 +335,64 @@ window.addEventListener('message', event => {
     case 'modelsListError':
       showMessage('✗ Failed to list models: ' + message.error, true);
       break;
+    case 'githubConnected':
+      updateGitHubAuthStatus({ connected: true, accountLabel: message.accountLabel });
+      showMessage('✓ Connected GitHub account: ' + message.accountLabel);
+      break;
+    case 'githubConnectError':
+      showMessage('✗ GitHub connect failed: ' + message.error, true);
+      break;
+    case 'githubDisconnected':
+      updateGitHubAuthStatus({ connected: false });
+      showMessage('✓ GitHub disconnected from PgStudio');
+      break;
+    case 'githubDisconnectError':
+      showMessage('✗ GitHub disconnect failed: ' + message.error, true);
+      break;
   }
 });
+
+function updateGitHubAuthStatus(auth) {
+  if (!githubBanner || !githubStatusText) {
+    return;
+  }
+
+  githubAuthState = auth || { connected: false, accountLabel: '' };
+
+  if (providerSelect.value !== 'github' && !githubAuthState.connected) {
+    githubBanner.classList.add('hidden');
+    return;
+  }
+
+  githubBanner.classList.remove('hidden');
+  if (auth && auth.connected) {
+    githubStatusText.textContent = 'Connected as ' + (auth.accountLabel || 'GitHub user');
+    githubBanner.classList.remove('warning');
+    githubBanner.classList.add('info');
+  } else {
+    githubStatusText.textContent = 'Not connected';
+    githubBanner.classList.remove('info');
+    githubBanner.classList.add('warning');
+  }
+}
+
+if (githubConnectBtn) {
+  githubConnectBtn.addEventListener('click', () => {
+    hideMessage();
+    githubConnectBtn.disabled = true;
+    githubConnectBtn.innerHTML = '<span class="btn-icon">⏳</span><span>Connecting...</span>';
+    vscode.postMessage({ command: 'connectGitHub' });
+  });
+}
+
+if (githubDisconnectBtn) {
+  githubDisconnectBtn.addEventListener('click', () => {
+    hideMessage();
+    githubDisconnectBtn.disabled = true;
+    githubDisconnectBtn.innerHTML = '<span class="btn-icon">⏳</span><span>Disconnecting...</span>';
+    vscode.postMessage({ command: 'disconnectGitHub' });
+  });
+}
 
 function handleModelsListed(models) {
   const provider = providerSelect.value;

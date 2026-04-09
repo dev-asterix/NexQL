@@ -226,6 +226,16 @@ select { cursor: pointer; }
     font-weight: 600;
 }
 
+.github-auth-actions {
+    display: flex;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-6);
+}
+
+.github-auth-actions .btn-secondary {
+    flex: 0 0 auto;
+}
+
 .provider-details {
     display: none;
     margin-top: var(--sp-6);

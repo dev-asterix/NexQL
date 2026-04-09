@@ -14,10 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Image lightbox**: Click any image thumbnail (in the input strip or in message history) to open a full-size overlay preview.
 - **Vision AI support**: Images are now properly sent to AI providers that support vision — OpenAI/custom as `image_url` parts, Anthropic as `base64` image blocks, Gemini as `inline_data` parts, and VS Code LM via `LanguageModelImagePart`.
 - **File preview from chat**: Clicking an attached file chip (in the input area or in message history) opens the file as a preview tab in the VS Code editor. Works for files attached via the file picker, "Send to Chat", and "Analyze Data" buttons.
+- **GitHub Models account sign-in**: Added first-class GitHub Models provider support using VS Code GitHub authentication sessions, including model listing and connection checks from AI Settings.
+
+### Changed
+- **GitHub auth UX**: GitHub provider connection now uses the standard VS Code GitHub sign-in flow in AI Settings, with provider state reflected in the UI.
 
 ### Fixed
 - **Image CSP**: Added `img-src data: blob:` to the webview Content Security Policy so image thumbnails actually render (previously blocked by `default-src 'none'`).
 - **File path missing on attach**: Files picked via the attachment button now include their filesystem path, enabling click-to-preview.
+- **Open VSX GitHub auth fallback**: Removed invalid OAuth scope requests for GitHub session auth to prevent users from being redirected to PAT-only fallback prompts.
 
 ---
 

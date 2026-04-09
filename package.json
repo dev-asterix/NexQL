@@ -1181,6 +1181,7 @@
           "type": "string",
           "enum": [
             "vscode-lm",
+            "github",
             "openai",
             "anthropic",
             "gemini",
@@ -1192,7 +1193,7 @@
         "postgresExplorer.aiApiKey": {
           "type": "string",
           "default": "",
-          "description": "API Key for direct AI providers (OpenAI/Anthropic)"
+          "description": "API Key for direct AI providers (OpenAI/Anthropic/Gemini/custom)"
         },
         "postgresExplorer.aiModel": {
           "type": "string",
