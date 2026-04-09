@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.5] - 2026-04-09
+
+### Added
+- **Image support in SQL Assistant**: Paste images directly from clipboard or upload via the new image button (🖼) in the chat input. Images render as fixed 56×56px thumbnails in a dedicated preview strip above the textarea.
+- **Image lightbox**: Click any image thumbnail (in the input strip or in message history) to open a full-size overlay preview.
+- **Vision AI support**: Images are now properly sent to AI providers that support vision — OpenAI/custom as `image_url` parts, Anthropic as `base64` image blocks, Gemini as `inline_data` parts, and VS Code LM via `LanguageModelImagePart`.
+- **File preview from chat**: Clicking an attached file chip (in the input area or in message history) opens the file as a preview tab in the VS Code editor. Works for files attached via the file picker, "Send to Chat", and "Analyze Data" buttons.
+
+### Fixed
+- **Image CSP**: Added `img-src data: blob:` to the webview Content Security Policy so image thumbnails actually render (previously blocked by `default-src 'none'`).
+- **File path missing on attach**: Files picked via the attachment button now include their filesystem path, enabling click-to-preview.
+
+---
+
 ## [0.9.2] - 2026-04-07
 
 ### Added

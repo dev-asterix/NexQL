@@ -218,11 +218,32 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
     const history = this._messages.slice(-10);
 
     messages.push(
-      ...history.map(msg =>
-        msg.role === 'user'
-          ? vscode.LanguageModelChatMessage.User(this._sanitizeContent(this._getMessageContent(msg)))
-          : vscode.LanguageModelChatMessage.Assistant(this._sanitizeContent(this._getMessageContent(msg)))
-      )
+      ...history.map(msg => {
+        const text = this._sanitizeContent(this._getMessageContent(msg));
+        const images = msg.attachments?.filter(a => a.type === 'image' && a.dataUrl) || [];
+        if (images.length > 0) {
+          const parts: any[] = [];
+          for (const img of images) {
+            const match = img.dataUrl!.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              const bytes = Buffer.from(match[2], 'base64');
+              const lmImagePart = (vscode as any).LanguageModelImagePart;
+              if (typeof lmImagePart === 'function') {
+                parts.push(new lmImagePart(match[1], bytes));
+              }
+            }
+          }
+          if (text.trim()) {
+            parts.push(new (vscode as any).LanguageModelTextPart(text));
+          }
+          return msg.role === 'user'
+            ? vscode.LanguageModelChatMessage.User(parts.length > 0 ? parts : text)
+            : vscode.LanguageModelChatMessage.Assistant(text);
+        }
+        return msg.role === 'user'
+          ? vscode.LanguageModelChatMessage.User(text)
+          : vscode.LanguageModelChatMessage.Assistant(text);
+      })
     );
     // Always include the latest user prompt as the final turn.
     // Some models are sensitive to explicit final-turn structure.
@@ -506,12 +527,87 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
   private _getMessageContent(msg: ChatMessage): string {
     let content = msg.content;
     if (msg.attachments && msg.attachments.length > 0) {
-      const attachmentTexts = msg.attachments.map(att =>
-        `\n\nFile: ${att.name} (${att.type})\n\`\`\`${att.type}\n${att.content}\n\`\`\``
-      ).join('');
+      const attachmentTexts = msg.attachments
+        .filter(att => att.type !== 'image')
+        .map(att => `\n\nFile: ${att.name} (${att.type})\n\`\`\`${att.type}\n${att.content}\n\`\`\``)
+        .join('');
       content += attachmentTexts;
     }
     return content;
+  }
+
+  /**
+   * Build a multipart content array for providers that support vision (images).
+   * Returns null if there are no image attachments (caller should use plain string).
+   */
+  private _buildMultipartContent(msg: ChatMessage, textOverride?: string): any[] | null {
+    const images = msg.attachments?.filter(att => att.type === 'image' && att.dataUrl) || [];
+    if (images.length === 0) return null;
+
+    const text = textOverride ?? this._getMessageContent(msg);
+    const parts: any[] = [];
+
+    if (text.trim()) {
+      parts.push({ type: 'text', text });
+    }
+
+    for (const img of images) {
+      // dataUrl format: "data:<mimeType>;base64,<data>"
+      const match = img.dataUrl!.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        parts.push({
+          type: 'image_url',
+          image_url: { url: img.dataUrl! }
+        });
+      }
+    }
+
+    return parts.length > 0 ? parts : null;
+  }
+
+  /**
+   * Build Anthropic-style multipart content with image blocks.
+   */
+  private _buildAnthropicContent(msg: ChatMessage, textOverride?: string): any[] | string {
+    const images = msg.attachments?.filter(att => att.type === 'image' && att.dataUrl) || [];
+    const text = textOverride ?? this._getMessageContent(msg);
+
+    if (images.length === 0) return text;
+
+    const parts: any[] = [];
+    for (const img of images) {
+      const match = img.dataUrl!.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        parts.push({
+          type: 'image',
+          source: { type: 'base64', media_type: match[1], data: match[2] }
+        });
+      }
+    }
+    if (text.trim()) {
+      parts.push({ type: 'text', text });
+    }
+    return parts;
+  }
+
+  /**
+   * Build Gemini-style parts array with inline image data.
+   */
+  private _buildGeminiParts(msg: ChatMessage, textOverride?: string): any[] {
+    const images = msg.attachments?.filter(att => att.type === 'image' && att.dataUrl) || [];
+    const text = textOverride ?? this._getMessageContent(msg);
+    const parts: any[] = [];
+
+    if (text.trim()) {
+      parts.push({ text });
+    }
+    for (const img of images) {
+      const match = img.dataUrl!.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        parts.push({ inline_data: { mime_type: match[1], data: match[2] } });
+      }
+    }
+    return parts;
   }
 
   async callDirectApi(provider: string, userMessage: string, config: vscode.WorkspaceConfiguration, customSystemPrompt?: string): Promise<{ text: string, usage?: string }> {
@@ -551,8 +647,18 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
       if (systemPrompt) {
         messages.push({ role: 'system', content: systemPrompt });
       }
-      messages.push(...conversationHistory);
-      messages.push({ role: 'user', content: userMessage });
+      // History with vision support
+      for (const msg of this._messages.slice(-10)) {
+        const multipart = this._buildMultipartContent(msg);
+        messages.push({
+          role: msg.role,
+          content: multipart ?? this._sanitizeContent(this._getMessageContent(msg))
+        });
+      }
+      // Current user message — check if it carries images
+      const currentMsg: ChatMessage = { role: 'user', content: userMessage, attachments: this._messages[this._messages.length - 1]?.attachments };
+      const currentMultipart = this._buildMultipartContent(currentMsg, userMessage);
+      messages.push({ role: 'user', content: currentMultipart ?? userMessage });
 
       body = {
         model: model,
@@ -565,13 +671,24 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
       headers['x-api-key'] = apiKey;
       headers['anthropic-version'] = '2023-06-01';
       delete headers['Authorization'];
+
+      const anthropicMessages: any[] = [];
+      for (const msg of this._messages.slice(-10)) {
+        anthropicMessages.push({
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: this._buildAnthropicContent(msg)
+        });
+      }
+      const lastMsg = this._messages[this._messages.length - 1];
+      const currentAnthropicContent = lastMsg?.attachments?.some(a => a.type === 'image')
+        ? this._buildAnthropicContent(lastMsg, userMessage)
+        : userMessage;
+      anthropicMessages.push({ role: 'user', content: currentAnthropicContent });
+
       body = {
         model: model,
         system: systemPrompt,
-        messages: [
-          ...conversationHistory,
-          { role: 'user', content: userMessage }
-        ],
+        messages: anthropicMessages,
         max_tokens: 4096
       };
     } else if (provider === 'gemini') {
@@ -580,15 +697,22 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
       headers['X-goog-api-key'] = apiKey;
       delete headers['Authorization'];
 
+      const geminiContents: any[] = [];
+      for (const msg of this._messages.slice(-10)) {
+        geminiContents.push({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: this._buildGeminiParts(msg)
+        });
+      }
+      const lastMsg = this._messages[this._messages.length - 1];
+      const currentGeminiParts = lastMsg?.attachments?.some(a => a.type === 'image')
+        ? this._buildGeminiParts(lastMsg, userMessage)
+        : [{ text: userMessage }];
+      geminiContents.push({ role: 'user', parts: currentGeminiParts });
+
       body = {
         systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
-        contents: [
-          ...conversationHistory.map(msg => ({
-            role: msg.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: msg.content }]
-          })),
-          { role: 'user', parts: [{ text: userMessage }] }
-        ]
+        contents: geminiContents
       };
     } else if (provider === 'custom') {
       endpoint = config.get<string>('aiEndpoint') || '';

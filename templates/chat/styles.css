@@ -775,6 +775,21 @@
           word-break: break-word;
         }
 
+        .image-message-preview {
+          background: transparent;
+          border: none;
+          margin: 6px 0;
+        }
+
+        .image-message-thumb {
+          max-width: 240px;
+          max-height: 180px;
+          border-radius: 6px;
+          object-fit: contain;
+          display: block;
+          cursor: zoom-in;
+        }
+
         .input-container {
           display: flex;
           flex-direction: column;
@@ -1056,6 +1071,96 @@
         .attachment-chip .remove-btn svg {
           width: 12px;
           height: 12px;
+        }
+
+        /* Image attachment chip */
+        .attachment-chip.image-chip {
+          padding: 2px;
+          height: auto;
+          position: relative;
+        }
+
+        .image-preview-thumb {
+          display: block;
+          max-height: 64px;
+          max-width: 120px;
+          border-radius: 4px;
+          object-fit: cover;
+          cursor: zoom-in;
+        }
+
+        .attachment-chip.image-chip .remove-btn {
+          position: absolute;
+          top: -4px;
+          right: -4px;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: var(--vscode-badge-background);
+          color: var(--vscode-badge-foreground);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 1;
+          padding: 0;
+        }
+
+        /* Image preview strip above textarea */
+        .image-preview-strip {
+          display: none;
+          flex-direction: row;
+          gap: 8px;
+          padding: 6px 4px 4px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          border-bottom: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.15));
+          scrollbar-width: thin;
+        }
+
+        .image-preview-strip.has-images {
+          display: flex;
+        }
+
+        .image-strip-item {
+          position: relative;
+          flex-shrink: 0;
+          width: 32px;
+          height: 32px;
+          border-radius: 6px;
+          overflow: visible;
+        }
+
+        .image-strip-thumb {
+          width: 32px;
+          height: 32px;
+          object-fit: cover;
+          border-radius: 6px;
+          display: block;
+          cursor: zoom-in;
+          border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.2));
+        }
+
+        .image-strip-remove {
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: var(--vscode-badge-background, #666);
+          color: var(--vscode-badge-foreground, #fff);
+          border: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          z-index: 1;
+        }
+
+        .image-strip-remove svg {
+          width: 10px;
+          height: 10px;
         }
 
         .empty-state-text {

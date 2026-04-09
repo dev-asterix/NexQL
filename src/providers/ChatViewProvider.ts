@@ -286,6 +286,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'openInNotebook':
           await this._handleOpenInNotebook(data.code);
           break;
+        case 'previewFile':
+          await this._handlePreviewFile(data.path, data.name);
+          break;
       }
     });
   }
@@ -312,8 +315,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let fullMessage = message;
     if (attachments && attachments.length > 0) {
       const attachmentLinks = attachments.map(att => {
+        if (att.type === 'image') {
+          return `\n\n🖼️ **Image:** ${att.name}`;
+        }
         if (att.path) {
-          // If path exists, create a clickable link (using file URI scheme)
           return `\n\n📎 [${att.name}](${vscode.Uri.file(att.path).toString()})`;
         } else {
           return `\n\n📎 **Attached:** ${att.name}`;
@@ -325,9 +330,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // For AI (current turn), we need the full content
     let aiMessage = message;
     if (attachments && attachments.length > 0) {
-      const attachmentContent = attachments.map(att =>
-        `\n\nFile: ${att.name} (${att.type})\n\`\`\`${att.type}\n${att.content}\n\`\`\``
-      ).join('');
+      const attachmentContent = attachments.map(att => {
+        if (att.type === 'image') {
+          return `\n\n[Image attached: ${att.name}]`;
+        }
+        return `\n\nFile: ${att.name} (${att.type})\n\`\`\`${att.type}\n${att.content}\n\`\`\``;
+      }).join('');
       aiMessage = message + attachmentContent;
     }
 
@@ -584,12 +592,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           file: {
             name: fileName,
             content: truncatedContent,
-            type: this._getFileType(fileName)
+            type: this._getFileType(fileName),
+            path: fileUri[0].fsPath
           }
         });
       } catch (error) {
         vscode.window.showErrorMessage('Failed to read file');
       }
+    }
+  }
+
+  private async _handlePreviewFile(filePath: string, fileName: string): Promise<void> {
+    try {
+      const uri = vscode.Uri.file(filePath);
+      await vscode.commands.executeCommand('vscode.open', uri, { preview: true });
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not open file: ${fileName}`);
     }
   }
 

@@ -51,6 +51,8 @@
 - 🛡️ **Auto-LIMIT** — Intelligent query protection (configurable, default 1000 rows)
 - 🌍 **Foreign Data Wrappers** — Manage foreign servers, user mappings & tables
 - 🤖 **AI-Powered** — Generate, Optimize, Explain & Analyze with guided follow-ups and next-step suggestions (OpenAI, Anthropic, Gemini)
+- 🖼️ **Vision AI** — Paste or upload images directly in the SQL Assistant; sent to vision-capable AI providers
+- 📎 **File Preview** — Click attached file chips to open them as preview tabs in the editor
 - 📤 **Export Data** — Export results to CSV, JSON, or Excel
 
 ---
@@ -130,7 +132,7 @@ Then: **PostgreSQL icon** → **Add Connection** → Enter details → **Connect
 - `SECURITY.md` - Security policy and vulnerability reporting guidance
 - `CHANGELOG.md` - Release notes and what changed across versions
 
-**v0.8.9 (latest) —** AI chat now lists Anthropic models from the official API, resolves saved AI keys from SecretStorage, and adds guided follow-up selection plus optional next-step bubbles/factoids. Assistant responses are labeled **PG Studio Bot**. Details: `CHANGELOG.md`.
+**v0.9.5 (latest) —** SQL Assistant now supports image paste/upload with thumbnail previews, vision AI (OpenAI, Anthropic, Gemini, VS Code LM), and click-to-preview for attached files. Details: `CHANGELOG.md`.
 
 ---
 

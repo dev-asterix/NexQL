@@ -15,6 +15,9 @@ export interface FileAttachment {
   content: string;
   type: string;
   path?: string;
+  // For image attachments: base64 data URL
+  dataUrl?: string;
+  mimeType?: string;
 }
 
 export interface DbMention {

@@ -719,27 +719,36 @@ function renderMentionChips() {
 
   attachedFiles.forEach((file, index) => {
     const chip = document.createElement('div');
-    chip.className = 'attachment-chip';
 
+    if (file.type === 'image' && file.dataUrl) {
+      // Images go to the strip, not here — skip
+      return;
+    }
+
+    chip.className = 'attachment-chip';
+    if (file.path) {
+      chip.title = 'Click to preview';
+      chip.style.cursor = 'pointer';
+      chip.addEventListener('click', () => vscode.postMessage({ type: 'previewFile', path: file.path, name: file.name }));
+    }
     const iconSpan = document.createElement('span');
     iconSpan.className = 'file-icon';
     iconSpan.textContent = getFileIcon(file.type);
-
     const nameSpan = document.createElement('span');
     nameSpan.className = 'file-name';
     nameSpan.textContent = file.name || '';
-
     const removeBtn = document.createElement('button');
     removeBtn.className = 'remove-btn';
     removeBtn.title = 'Remove file';
     removeBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.708.708L7.293 8l-3.647 3.646.708.708L8 8.707z"/></svg>';
     removeBtn.addEventListener('click', (e) => { e.stopPropagation(); removeAttachment(index); });
-
     chip.appendChild(iconSpan);
     chip.appendChild(nameSpan);
     chip.appendChild(removeBtn);
     attachmentsContainer.appendChild(chip);
   });
+
+  renderImageStrip();
 
   selectedMentions.forEach((mention, index) => {
     const chip = document.createElement('div');
@@ -946,26 +955,111 @@ function attachFile() {
   vscode.postMessage({ type: 'pickFile' });
 }
 
+function attachImage() {
+  document.getElementById('imageFileInput').click();
+}
+
+function handleImageFileInput(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  readImageFile(file);
+  // Reset so same file can be re-selected
+  event.target.value = '';
+}
+
+function readImageFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    attachedFiles.push({
+      name: file.name,
+      content: '',
+      type: 'image',
+      dataUrl: dataUrl,
+      mimeType: file.type
+    });
+    renderAttachments();
+  };
+  reader.readAsDataURL(file);
+}
+
+function openLightbox(src) {
+  const lb = document.getElementById('imageLightbox');
+  const img = document.getElementById('lightboxImg');
+  img.src = src;
+  lb.style.display = 'flex';
+}
+
+function closeLightbox() {
+  const lb = document.getElementById('imageLightbox');
+  lb.style.display = 'none';
+  document.getElementById('lightboxImg').src = '';
+}
+
 function removeAttachment(index) {
   attachedFiles.splice(index, 1);
   renderAttachments();
 }
 
+function renderImageStrip() {
+  const strip = document.getElementById('imagePreviewStrip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  const images = attachedFiles.filter(f => f.type === 'image' && f.dataUrl);
+  if (images.length === 0) {
+    strip.classList.remove('has-images');
+    return;
+  }
+  strip.classList.add('has-images');
+  images.forEach((file) => {
+    const realIndex = attachedFiles.indexOf(file);
+    const item = document.createElement('div');
+    item.className = 'image-strip-item';
+
+    const thumb = document.createElement('img');
+    thumb.className = 'image-strip-thumb';
+    thumb.src = file.dataUrl;
+    thumb.alt = file.name;
+    thumb.title = 'Click to preview';
+    thumb.addEventListener('click', () => openLightbox(file.dataUrl));
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'image-strip-remove';
+    removeBtn.title = 'Remove image';
+    removeBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.708.708L7.293 8l-3.647 3.646.708.708L8 8.707z"/></svg>';
+    removeBtn.addEventListener('click', (e) => { e.stopPropagation(); removeAttachment(realIndex); });
+
+    item.appendChild(thumb);
+    item.appendChild(removeBtn);
+    strip.appendChild(item);
+  });
+}
+
 function renderAttachments() {
   attachmentsContainer.innerHTML = '';
+  renderImageStrip();
 
-  if (attachedFiles.length === 0) {
+  const nonImages = attachedFiles.filter(f => f.type !== 'image');
+  if (nonImages.length === 0) {
     attachmentsContainer.classList.remove('has-files');
-    inputWrapper.classList.remove('has-attachments');
+    if (attachedFiles.length === 0) {
+      inputWrapper.classList.remove('has-attachments');
+    }
     return;
   }
 
   attachmentsContainer.classList.add('has-files');
   inputWrapper.classList.add('has-attachments');
 
-  attachedFiles.forEach((file, index) => {
+  nonImages.forEach((file) => {
+    const realIndex = attachedFiles.indexOf(file);
     const chip = document.createElement('div');
     chip.className = 'attachment-chip';
+    if (file.path) {
+      chip.title = 'Click to preview';
+      chip.style.cursor = 'pointer';
+      chip.addEventListener('click', () => vscode.postMessage({ type: 'previewFile', path: file.path, name: file.name }));
+    }
 
     const iconSpan = document.createElement('span');
     iconSpan.className = 'file-icon';
@@ -979,12 +1073,11 @@ function renderAttachments() {
     removeBtn.className = 'remove-btn';
     removeBtn.title = 'Remove file';
     removeBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.708.708L7.293 8l-3.647 3.646.708.708L8 8.707z"/></svg>';
-    removeBtn.addEventListener('click', (e) => { e.stopPropagation(); removeAttachment(index); });
+    removeBtn.addEventListener('click', (e) => { e.stopPropagation(); removeAttachment(realIndex); });
 
     chip.appendChild(iconSpan);
     chip.appendChild(nameSpan);
     chip.appendChild(removeBtn);
-
     attachmentsContainer.appendChild(chip);
   });
 }
@@ -994,7 +1087,8 @@ function getFileIcon(type) {
     'sql': '📄',
     'json': '📋',
     'csv': '📊',
-    'text': '📝'
+    'text': '📝',
+    'image': '🖼️'
   };
   return icons[type] || '📎';
 }
@@ -1028,6 +1122,7 @@ function sendMessage() {
   chatInput.disabled = true;
   sendBtn.disabled = true;
   attachBtn.disabled = true;
+  document.getElementById('imageBtn').disabled = true;
   mentionBtn.disabled = true;
 
   // Clear attachments and mentions after sending
@@ -1077,6 +1172,20 @@ function handleKeyDown(event) {
 chatInput.addEventListener('input', function () {
   this.style.height = 'auto';
   this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+// Paste image from clipboard
+chatInput.addEventListener('paste', function (e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) readImageFile(file);
+      break;
+    }
+  }
 });
 
 // Escape HTML for safe display
@@ -1551,6 +1660,7 @@ window.addEventListener('message', event => {
       chatInput.disabled = false;
       sendBtn.disabled = false;
       attachBtn.disabled = false;
+      document.getElementById('imageBtn').disabled = false;
       mentionBtn.disabled = false;
       chatInput.focus();
       break;
@@ -1751,20 +1861,39 @@ function renderMessages(messages, animate = false) {
     // Render attachments for user messages
     if (msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
       msg.attachments.forEach(att => {
-        const filePreview = document.createElement('div');
-        filePreview.className = 'file-preview';
-        filePreview.innerHTML = `
-                  <div class="file-preview-header">
-                    <span>${getFileIcon(att.type)}</span>
-                    <span>${escapeHtml(att.name)}</span>
-                  </div>
-                  <div class="file-preview-content">${escapeHtml(att.content.substring(0, 500))}${att.content.length > 500 ? '...' : ''}</div>
-                `;
-        contentDiv.appendChild(filePreview);
+        if (att.type === 'image' && att.dataUrl) {
+          const imgWrap = document.createElement('div');
+          imgWrap.className = 'file-preview image-message-preview';
+          const img = document.createElement('img');
+          img.src = att.dataUrl;
+          img.alt = att.name;
+          img.title = 'Click to preview';
+          img.className = 'image-message-thumb';
+          img.addEventListener('click', () => openLightbox(att.dataUrl));
+          imgWrap.appendChild(img);
+          contentDiv.appendChild(imgWrap);
+        } else {
+          const filePreview = document.createElement('div');
+          filePreview.className = 'file-preview';
+          if (att.path) {
+            filePreview.style.cursor = 'pointer';
+            filePreview.title = 'Click to open in editor';
+            filePreview.addEventListener('click', () => vscode.postMessage({ type: 'previewFile', path: att.path, name: att.name }));
+          }
+          filePreview.innerHTML = `
+                    <div class="file-preview-header">
+                      <span>${getFileIcon(att.type)}</span>
+                      <span>${escapeHtml(att.name)}</span>
+                      ${att.path ? '<span style="margin-left:auto;opacity:0.6;font-size:10px;">open ↗</span>' : ''}
+                    </div>
+                    <div class="file-preview-content">${escapeHtml(att.content.substring(0, 500))}${att.content.length > 500 ? '...' : ''}</div>
+                  `;
+          contentDiv.appendChild(filePreview);
+        }
       });
 
       // Add the text message after attachments if exists
-      const textWithoutAttachments = msg.content.split('\n\n📎')[0].trim();
+      const textWithoutAttachments = msg.content.split('\n\n📎')[0].split('\n\n🖼️')[0].trim();
       if (textWithoutAttachments && textWithoutAttachments !== 'Please analyze the attached file(s)') {
         const textP = document.createElement('p');
         textP.innerHTML = highlightMentionsInText(textWithoutAttachments);
