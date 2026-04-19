@@ -238,8 +238,8 @@
     <div id="tab-performance" class="tab-content">
       <div class="charts-row performance-charts-grid">
         <div class="chart-box">
-          <div class="label">Cache Hit Ratio</div>
-          <div class="chart-note">Good: >95%. 90-95% is warning. Below 90% may indicate memory pressure.</div>
+          <div class="label">Shared Buffer Hit Ratio</div>
+          <div class="chart-note">From pg_stat_database: blks_hit / (blks_hit + blks_read). Good: >95%. 90-95% is warning.</div>
           <canvas id="cacheHitChart"></canvas>
         </div>
         <div class="chart-box">
@@ -261,7 +261,7 @@
 
       <div class="performance-insights-row">
         <div class="chart-box performance-insight-card">
-          <div class="label">Index Hit Ratio (Context)</div>
+          <div class="label">Index Block Hit Ratio (Context)</div>
           <div class="chart-note" id="perf-index-hit-note">Awaiting telemetry...</div>
           <div class="value" id="perf-index-hit-value">-</div>
         </div>
@@ -370,6 +370,7 @@
 
     <!-- TAB: SCHEMA HEALTH -->
     <div id="tab-schema-health" class="tab-content">
+      <div class="chart-note" id="schema-health-note" style="margin-bottom: 12px;">Tracking schema-health risk signals over time.</div>
 
       <!-- Index Health -->
       <h3 style="font-size: 1.1rem; margin-bottom: 4px;">Index Health</h3>
@@ -377,7 +378,7 @@
       <div class="charts-row" style="margin-bottom: 0;">
         <div class="chart-box">
           <div class="label">Unused Indexes <button class="card-ai-btn" data-metric="unused-indexes" title="Ask AI about unused indexes">&#129504;</button></div>
-          <div class="chart-note">Indexes that have never been scanned. They waste write overhead and storage — consider dropping them.</div>
+          <div class="chart-note">Indexes with zero scans excluding PK/UNIQUE/constraint-backed indexes. Review before dropping.</div>
           <div class="table-container">
             <table id="unused-indexes-table">
               <thead>
@@ -413,13 +414,13 @@
         </div>
       </div>
 
-      <!-- Table Bloat -->
-      <h3 style="font-size: 1.1rem; margin-top: 24px; margin-bottom: 4px;">Table Bloat</h3>
+      <!-- Dead Tuple Pressure -->
+      <h3 style="font-size: 1.1rem; margin-top: 24px; margin-bottom: 4px;">Dead Tuple Pressure</h3>
 
       <div class="charts-row" style="margin-bottom: 0;">
         <div class="chart-box" style="grid-column: 1 / -1;">
-          <div class="label">Bloated Tables (Dead Tuple Ratio) <button class="card-ai-btn" data-metric="table-bloat" title="Ask AI about table bloat">&#129504;</button></div>
-          <div class="chart-note">Tables with significant dead tuples. High bloat% slows queries and wastes disk. Run VACUUM to reclaim space.</div>
+          <div class="label">Dead Tuple Ratio (Proxy) <button class="card-ai-btn" data-metric="table-bloat" title="Ask AI about dead tuple pressure">&#129504;</button></div>
+          <div class="chart-note">Dead tuple ratio is a vacuum pressure proxy, not a physical storage-bloat measurement.</div>
           <div class="table-container">
             <table id="table-bloat-table">
               <thead>
@@ -427,7 +428,7 @@
                   <th>Table</th>
                   <th style="width: 100px; text-align: right;">Live Rows</th>
                   <th style="width: 100px; text-align: right;">Dead Rows</th>
-                  <th style="width: 80px; text-align: right;">Bloat%</th>
+                  <th style="width: 80px; text-align: right;">Dead%</th>
                   <th style="width: 90px; text-align: right;">Size</th>
                   <th style="width: 100px; text-align: center;">Action</th>
                 </tr>
@@ -462,13 +463,14 @@
 
         <div class="chart-box">
           <div class="label">Tables Needing Vacuum</div>
-          <div class="chart-note">Tables with notable dead tuples that autovacuum should process soon.</div>
+          <div class="chart-note">Tables where dead tuples exceed effective autovacuum thresholds (table options + global settings).</div>
           <div class="table-container">
             <table id="tables-needing-vacuum-table">
               <thead>
                 <tr>
                   <th>Table</th>
                   <th style="width: 90px; text-align: right;">Dead Tuples</th>
+                  <th style="width: 100px; text-align: right;">Threshold</th>
                   <th style="width: 130px;">Last Autovacuum</th>
                   <th style="width: 130px;">Last Autoanalyze</th>
                 </tr>
@@ -489,6 +491,7 @@
           <input type="checkbox" id="ai-auto-notify">
           <span>Auto on degradation</span>
         </label>
+        <button id="ai-clear-btn" class="ai-panel-clear" title="Clear conversation">&#10227;</button>
         <button id="ai-panel-close" class="ai-panel-close" title="Close AI panel">&#10005;</button>
       </div>
       <div class="ai-quick-chips">
@@ -498,15 +501,17 @@
         <button class="ai-chip" data-prompt="top-sql">Optimize top SQL</button>
         <button class="ai-chip" data-prompt="schema-health">Schema health</button>
         <button class="ai-chip" data-prompt="vacuum-advice">Vacuum advice</button>
+        <button class="ai-chip" data-prompt="connection-triage">Connection triage</button>
+        <button class="ai-chip" data-prompt="index-recommendations">Index advice</button>
       </div>
       <div id="ai-response-area" class="ai-response-area">
         <div class="ai-welcome">
           <p>Ask about any metric, or click a quick-action above.</p>
-          <p style="font-size: 0.8rem; color: var(--muted-color);">Context from the current dashboard snapshot is sent with each question.</p>
+          <p style="font-size: 0.8rem; color: var(--muted-color);">Context from the current dashboard snapshot is sent with each question. The AI will suggest follow-up questions after each response.</p>
         </div>
       </div>
       <div class="ai-input-row">
-        <textarea id="ai-question" class="ai-question-input" placeholder="Ask about any metric..." rows="2"></textarea>
+        <textarea id="ai-question" class="ai-question-input" placeholder="Ask about any metric, or type a number to select a follow-up question..." rows="2"></textarea>
         <button id="ai-send-btn" class="btn-action">Send</button>
       </div>
     </div>

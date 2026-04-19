@@ -637,7 +637,8 @@ tr.row-focus {
   white-space: nowrap;
 }
 
-.ai-panel-close {
+.ai-panel-close,
+.ai-panel-clear {
   background: none;
   border: none;
   cursor: pointer;
@@ -648,7 +649,8 @@ tr.row-focus {
   border-radius: 3px;
 }
 
-.ai-panel-close:hover {
+.ai-panel-close:hover,
+.ai-panel-clear:hover {
   color: var(--fg-color);
   background: rgba(128, 128, 128, 0.15);
 }
@@ -805,6 +807,17 @@ tr.row-focus {
   display: inline-flex;
   gap: 4px;
   padding: 12px;
+}
+
+.ai-loading-quirky {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(128, 128, 128, 0.4);
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.08);
+  color: var(--muted-color);
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .ai-loading-dots span {
@@ -985,6 +998,49 @@ tr.row-focus {
   opacity: 0.7;
 }
 .ai-run-skip-btn:hover { opacity: 1; }
+
+/* Follow-up question chips (numbered, rendered below AI bubble) */
+.ai-followup-chips,
+.ai-nextstep-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ai-suggestion-chip {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 3px 9px;
+  font-size: 10.5px;
+  cursor: pointer;
+  color: var(--muted-color);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  text-align: left;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-followup-chips .ai-suggestion-chip:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background: rgba(99, 179, 237, 0.07);
+}
+
+.ai-nextstep-chips .ai-suggestion-chip {
+  border-color: rgba(74, 222, 128, 0.4);
+  color: #4ade80;
+}
+
+.ai-nextstep-chips .ai-suggestion-chip:hover {
+  background: rgba(74, 222, 128, 0.08);
+  border-color: #4ade80;
+}
 
 .ai-run-executing {
   display: flex;

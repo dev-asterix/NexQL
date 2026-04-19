@@ -64,6 +64,7 @@ export interface DashboardStats {
   }[];
   waitEvents: { type: string; count: number }[];
   longRunningQueries: number;
+  sharedCacheHitRatio: number | null;
   indexHitRatio: number;
   oldestTransactionAgeSeconds: number;
   vacuumTablesNeedingAttention: number;
@@ -80,9 +81,9 @@ export interface DashboardStats {
   /** Currently running autovacuum workers. */
   autovacuumProgress: { pid: number; table_name: string; phase: string; heap_blks_scanned: number; heap_blks_total: number }[];
   /** Tables with notable dead tuples that need vacuum. */
-  tablesNeedingVacuum: { table_name: string; n_dead_tup: number; n_live_tup: number; last_autovacuum: string | null; last_autoanalyze: string | null }[];
+  tablesNeedingVacuum: { table_name: string; n_dead_tup: number; n_live_tup: number; dead_tuple_threshold: number; last_autovacuum: string | null; last_autoanalyze: string | null }[];
   /** Active connections grouped by application_name and state. */
-  connectionsByApp: { application_name: string; state: string; count: number }[];
+  connectionsByApp: { application_name: string; state: string; waiting: boolean; count: number }[];
 }
 
 export interface WalReplicationStats {
@@ -131,6 +132,51 @@ export interface WalReplicationStats {
 import { Client, PoolClient } from 'pg';
 
 export async function fetchStats(client: Client | PoolClient, dbName: string): Promise<DashboardStats> {
+  // Resolve version-specific stats source for checkpoints.
+  let serverVersionNum = 0;
+  try {
+    const versionRes = await client.query(`SHOW server_version_num`);
+    serverVersionNum = Number(versionRes.rows?.[0]?.server_version_num || 0);
+  } catch {
+    serverVersionNum = 0;
+  }
+
+  const checkpointStatsView = serverVersionNum >= 170000
+    ? 'pg_stat_checkpointer'
+    : 'pg_stat_bgwriter';
+
+  // Resolve pg_stat_statements timing column across PostgreSQL versions.
+  let pgStatStatementsTimeExpr = 'total_time';
+  let pgStatStatementsMeanExpr = 'mean_time';
+  try {
+    const pgStatStatementsColumnRes = await client.query(`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM pg_attribute
+          WHERE attrelid = to_regclass('pg_stat_statements')
+            AND attname = 'total_exec_time'
+            AND NOT attisdropped
+        ) AS has_total_exec_time,
+        EXISTS (
+          SELECT 1
+          FROM pg_attribute
+          WHERE attrelid = to_regclass('pg_stat_statements')
+            AND attname = 'mean_exec_time'
+            AND NOT attisdropped
+        ) AS has_mean_exec_time
+    `);
+    if (Boolean(pgStatStatementsColumnRes.rows?.[0]?.has_total_exec_time)) {
+      pgStatStatementsTimeExpr = 'total_exec_time';
+    }
+    if (Boolean(pgStatStatementsColumnRes.rows?.[0]?.has_mean_exec_time)) {
+      pgStatStatementsMeanExpr = 'mean_exec_time';
+    }
+  } catch {
+    pgStatStatementsTimeExpr = 'total_time';
+    pgStatStatementsMeanExpr = 'mean_time';
+  }
+
   // Fetch data with error handling for each query to prevent one failure from breaking the entire dashboard
   const [
     dbInfoRes,
@@ -142,6 +188,7 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     locksRes,
     metricsRes,
     settingsRes,
+    checkpointMetricsRes,
     pgStatRes,
     waitsRes,
     longQueriesRes,
@@ -245,13 +292,23 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
             JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid = blocking_locks.pid
             LEFT JOIN pg_catalog.pg_class c ON c.oid = blocked_locks.relation
             WHERE NOT blocked_locks.granted
+            AND blocked_activity.datname = $1
             AND blocking_activity.datname = $1
         `, [dbName]),
 
-    // Database Metrics (Throughput & I/O & Conflicts/Deadlocks)
-    // Select all columns to be robust against version differences (e.g. checkpoints_timed removed in PG 17)
+    // Database metrics scoped to the selected database.
     client.query(`
-            SELECT *
+            SELECT
+              xact_commit,
+              xact_rollback,
+              blks_read,
+              blks_hit,
+              deadlocks,
+              conflicts,
+              temp_bytes,
+              temp_files,
+              tup_fetched,
+              tup_returned
             FROM pg_stat_database 
             WHERE datname = $1
         `, [dbName]),
@@ -259,13 +316,22 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     // Settings (Max Connections)
     client.query(`SHOW max_connections`),
 
+    // Checkpoint counters are cluster-level and moved from pg_stat_bgwriter to pg_stat_checkpointer in PG 17.
+    client.query(`
+            SELECT
+              COALESCE(checkpoints_timed, 0) AS checkpoints_timed,
+              COALESCE(checkpoints_req, 0) AS checkpoints_req
+            FROM ${checkpointStatsView}
+            LIMIT 1
+        `),
+
     // pg_stat_statements (Top Queries) - Safe selection that returns empty if extension missing
     // We use a check to avoid error log spam if possible, or just let it fail gracefully via allSettled
-    client.query(`
-            SELECT query, calls, total_time, mean_time, rows
+        client.query(`
+              SELECT query, calls, ${pgStatStatementsTimeExpr} AS total_time, ${pgStatStatementsMeanExpr} AS mean_time, rows
             FROM pg_stat_statements
             WHERE dbid = (SELECT oid FROM pg_database WHERE datname = $1)
-            ORDER BY total_time DESC
+          ORDER BY ${pgStatStatementsTimeExpr} DESC
             LIMIT 10
     `, [dbName]),
 
@@ -404,15 +470,22 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
       ORDER BY slot_name
     `),
 
-    // Unused indexes (never scanned)
+    // Unused indexes (never scanned), excluding PK/UNIQUE/constraint-backed indexes.
     client.query(`
-      SELECT schemaname || '.' || indexrelname AS index_name,
-             tablename AS table_name,
-             pg_size_pretty(pg_relation_size(indexrelid)) AS index_size,
-             pg_relation_size(indexrelid) AS raw_size
-      FROM pg_stat_user_indexes
-      WHERE idx_scan = 0
-        AND schemaname NOT IN ('pg_catalog', 'information_schema')
+      SELECT s.schemaname || '.' || s.indexrelname AS index_name,
+             s.tablename AS table_name,
+             pg_size_pretty(pg_relation_size(s.indexrelid)) AS index_size,
+             pg_relation_size(s.indexrelid) AS raw_size
+      FROM pg_stat_user_indexes s
+      JOIN pg_index i
+        ON i.indexrelid = s.indexrelid
+      LEFT JOIN pg_constraint c
+        ON c.conindid = s.indexrelid
+      WHERE s.idx_scan = 0
+        AND s.schemaname NOT IN ('pg_catalog', 'information_schema')
+        AND c.oid IS NULL
+        AND NOT i.indisprimary
+        AND NOT i.indisunique
       ORDER BY raw_size DESC
       LIMIT 20
     `),
@@ -433,7 +506,7 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
       LIMIT 20
     `),
 
-    // Table bloat via dead tuple ratio
+    // Dead-tuple pressure proxy (not a physical bloat estimate).
     client.query(`
       SELECT schemaname || '.' || relname AS table_name,
              n_live_tup,
@@ -458,19 +531,42 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
              COALESCE(heap_blks_scanned, 0) AS heap_blks_scanned,
              COALESCE(heap_blks_total, 0) AS heap_blks_total
       FROM pg_stat_progress_vacuum
-    `),
+      WHERE datname = $1
+    `, [dbName]),
 
-    // Tables needing vacuum (notable dead tuples)
+    // Tables needing vacuum based on effective autovacuum thresholds.
     client.query(`
-      SELECT schemaname || '.' || relname AS table_name,
-             n_dead_tup,
-             n_live_tup,
-             last_autovacuum::text,
-             last_autoanalyze::text
-      FROM pg_stat_user_tables
-      WHERE n_dead_tup > 500
-        AND schemaname NOT IN ('pg_catalog', 'information_schema')
-      ORDER BY n_dead_tup DESC
+      SELECT st.schemaname || '.' || st.relname AS table_name,
+             st.n_dead_tup,
+             st.n_live_tup,
+             ROUND(
+               COALESCE(opts.vacuum_threshold, current_setting('autovacuum_vacuum_threshold')::numeric)
+               + COALESCE(opts.vacuum_scale_factor, current_setting('autovacuum_vacuum_scale_factor')::numeric)
+                 * GREATEST(st.n_live_tup, 0),
+               0
+             )::bigint AS dead_tuple_threshold,
+             st.last_autovacuum::text,
+             st.last_autoanalyze::text
+      FROM pg_stat_user_tables st
+      JOIN pg_class c ON c.oid = st.relid
+      LEFT JOIN LATERAL (
+        SELECT
+          MAX(CASE WHEN option_name = 'autovacuum_vacuum_threshold' THEN option_value::numeric END) AS vacuum_threshold,
+          MAX(CASE WHEN option_name = 'autovacuum_vacuum_scale_factor' THEN option_value::numeric END) AS vacuum_scale_factor
+        FROM pg_options_to_table(c.reloptions)
+      ) opts ON TRUE
+      WHERE st.schemaname NOT IN ('pg_catalog', 'information_schema')
+        AND st.n_dead_tup > (
+          COALESCE(opts.vacuum_threshold, current_setting('autovacuum_vacuum_threshold')::numeric)
+          + COALESCE(opts.vacuum_scale_factor, current_setting('autovacuum_vacuum_scale_factor')::numeric)
+            * GREATEST(st.n_live_tup, 0)
+        )
+      ORDER BY (st.n_dead_tup - ROUND(
+        COALESCE(opts.vacuum_threshold, current_setting('autovacuum_vacuum_threshold')::numeric)
+        + COALESCE(opts.vacuum_scale_factor, current_setting('autovacuum_vacuum_scale_factor')::numeric)
+          * GREATEST(st.n_live_tup, 0),
+        0
+      )) DESC
       LIMIT 20
     `),
 
@@ -478,13 +574,15 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     client.query(`
       SELECT COALESCE(NULLIF(application_name, ''), 'unknown') AS application_name,
              COALESCE(state, 'unknown') AS state,
+             (wait_event_type IS NOT NULL) AS waiting,
              COUNT(*)::int AS count
       FROM pg_stat_activity
       WHERE pid <> pg_backend_pid()
-      GROUP BY application_name, state
+        AND datname = $1
+      GROUP BY application_name, state, waiting
       ORDER BY count DESC
       LIMIT 20
-    `),
+    `, [dbName]),
   ]);
 
   // Helper to safely extract result or return empty default
@@ -506,10 +604,11 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
   const locksRows = getResult(locksRes).rows;
   const metricsRow = getResult(metricsRes).rows[0] || {
     xact_commit: 0, xact_rollback: 0, blks_read: 0, blks_hit: 0, deadlocks: 0, conflicts: 0,
-    temp_bytes: 0, temp_files: 0, checkpoints_timed: 0, checkpoints_req: 0,
+    temp_bytes: 0, temp_files: 0,
     tup_fetched: 0, tup_returned: 0
   };
   const maxConnRow = getResult(settingsRes).rows[0] || { max_connections: '100' };
+  const checkpointMetricsRow = getResult(checkpointMetricsRes).rows[0] || { checkpoints_timed: 0, checkpoints_req: 0 };
   const pgStatRows = getResult(pgStatRes).rows || [];
   const waitEventsRows = getResult(waitsRes).rows;
   const longQueriesRow = getResult(longQueriesRes).rows[0] || { count: 0 };
@@ -616,6 +715,13 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     connectionStates.push({ state: row.state || 'unknown', count });
   });
 
+  const metricsBlksRead = parseInt(metricsRow.blks_read || '0');
+  const metricsBlksHit = parseInt(metricsRow.blks_hit || '0');
+  const totalBlockAccesses = metricsBlksRead + metricsBlksHit;
+  const sharedCacheHitRatio = totalBlockAccesses > 0
+    ? (100.0 * metricsBlksHit) / totalBlockAccesses
+    : null;
+
   return {
     dbName: dbName,
     owner: dbInfo?.owner || 'Unknown',
@@ -665,14 +771,14 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     metrics: {
       xact_commit: parseInt(metricsRow.xact_commit || '0'),
       xact_rollback: parseInt(metricsRow.xact_rollback || '0'),
-      blks_read: parseInt(metricsRow.blks_read || '0'),
-      blks_hit: parseInt(metricsRow.blks_hit || '0'),
+      blks_read: metricsBlksRead,
+      blks_hit: metricsBlksHit,
       deadlocks: parseInt(metricsRow.deadlocks || '0'),
       conflicts: parseInt(metricsRow.conflicts || '0'),
       temp_bytes: parseInt(metricsRow.temp_bytes || '0'),
       temp_files: parseInt(metricsRow.temp_files || '0'),
-      checkpoints_timed: parseInt(metricsRow.checkpoints_timed || '0'),
-      checkpoints_req: parseInt(metricsRow.checkpoints_req || '0'),
+      checkpoints_timed: parseInt(checkpointMetricsRow.checkpoints_timed || '0'),
+      checkpoints_req: parseInt(checkpointMetricsRow.checkpoints_req || '0'),
       tuples_fetched: parseInt(metricsRow.tup_fetched || '0'),
       tuples_returned: parseInt(metricsRow.tup_returned || '0')
     },
@@ -688,6 +794,7 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
       count: parseInt(r.count)
     })),
     longRunningQueries: parseInt(longQueriesRow.count),
+    sharedCacheHitRatio,
     indexHitRatio: Math.max(0, Math.min(100, Number(indexHitRow.index_hit_ratio || 100))),
     oldestTransactionAgeSeconds: parseInt(oldestTxRow.oldest_tx_age_seconds || '0'),
     vacuumTablesNeedingAttention: parseInt(vacuumHealthRow.tables_needing_attention || '0'),
@@ -723,12 +830,14 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
       table_name: r.table_name,
       n_dead_tup: parseInt(r.n_dead_tup || '0'),
       n_live_tup: parseInt(r.n_live_tup || '0'),
+      dead_tuple_threshold: parseInt(r.dead_tuple_threshold || '0'),
       last_autovacuum: r.last_autovacuum ?? null,
       last_autoanalyze: r.last_autoanalyze ?? null,
     })),
     connectionsByApp: connectionsByAppRows.map((r: any) => ({
       application_name: r.application_name,
       state: r.state,
+      waiting: r.waiting === true || r.waiting === 't' || r.waiting === 'true',
       count: parseInt(r.count || '0'),
     })),
   };

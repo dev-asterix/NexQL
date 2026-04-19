@@ -63,6 +63,12 @@ const kpiHistory = {
 };
 
 const lockEventsHistory = [];
+const schemaHealthHistory = {
+  unusedIndexes: [],
+  highSeqScanTables: [],
+  deadTuplePressureTables: [],
+  vacuumAttentionTables: []
+};
 
 let activeQueriesCache = [];
 let blockingPids = new Set();
@@ -477,13 +483,13 @@ function updateDashboard(stats) {
 
   const commits = stats.metrics.xact_commit - lastMetrics.xact_commit;
   const rollbacks = stats.metrics.xact_rollback - lastMetrics.xact_rollback;
-  const reads = stats.metrics.blks_read - lastMetrics.blks_read;
-  const hits = stats.metrics.blks_hit - lastMetrics.blks_hit;
 
   const tps = Math.max(0, Math.round((commits + rollbacks) / timeDiff));
   const rollbackRate = Math.max(0, Math.round(rollbacks / timeDiff));
-  const totalIo = reads + hits;
-  const hitRatio = Math.min(100, Math.max(0, totalIo > 0 ? (hits / totalIo) * 100 : 100));
+  const sharedCacheHitRatioRaw = Number(stats.sharedCacheHitRatio);
+  const sharedCacheHitRatio = Number.isFinite(sharedCacheHitRatioRaw)
+    ? Math.min(100, Math.max(0, sharedCacheHitRatioRaw))
+    : null;
 
   pushWithLimit(timeLabels, formatTimeLabel(now));
   pushWithLimit(tpsHistory, tps);
@@ -494,7 +500,7 @@ function updateDashboard(stats) {
   const incomingActiveSessions = (stats.activeQueries || []).filter(query => (query.state || '').toLowerCase() === 'active').length;
   pushWithLimit(activeSessionHistory, incomingActiveSessions);
   pushWithLimit(rollbackHistory, rollbackRate);
-  pushWithLimit(cacheHitHistory, hitRatio);
+  pushWithLimit(cacheHitHistory, sharedCacheHitRatio);
   pushWithLimit(longRunningHistory, Math.max(0, stats.longRunningQueries || 0));
 
   const cpTimed = Math.max(0, (stats.metrics.checkpoints_timed || 0) - (lastMetrics.checkpoints_timed || 0));
@@ -880,7 +886,8 @@ function updateOverviewSignals(stats) {
   const vacuumChip = document.getElementById('signal-vacuum');
 
   if (indexChip) {
-    const ratio = Number(stats.indexHitRatio || 0);
+    const parsedRatio = Number(stats.indexHitRatio);
+    const ratio = Number.isFinite(parsedRatio) ? parsedRatio : 100;
     indexChip.textContent = `Index Hit: ${ratio.toFixed(1)}%`;
     indexChip.classList.remove('warn', 'crit');
     if (ratio < 90) indexChip.classList.add('crit');
@@ -909,15 +916,16 @@ function updatePerformanceInsights(stats) {
   const indexNote = document.getElementById('perf-index-hit-note');
   const topSqlList = document.getElementById('perf-top-sql-list');
 
-  const ratio = Number(stats.indexHitRatio || 0);
+  const parsedRatio = Number(stats.indexHitRatio);
+  const ratio = Number.isFinite(parsedRatio) ? parsedRatio : 100;
   if (indexValue) {
     indexValue.textContent = `${ratio.toFixed(1)}%`;
     indexValue.style.color = ratio < 90 ? 'var(--danger-color)' : ratio < 95 ? 'var(--warning-color)' : 'var(--success-color)';
   }
   if (indexNote) {
-    if (ratio < 90) indexNote.textContent = 'Low cache reuse. Validate indexes, execution plans, and memory settings.';
-    else if (ratio < 95) indexNote.textContent = 'Moderate cache reuse. Check hottest read paths and index coverage.';
-    else indexNote.textContent = 'Healthy cache reuse for indexed access patterns.';
+    if (ratio < 90) indexNote.textContent = 'Low index block cache reuse. Validate indexes, execution plans, and memory settings.';
+    else if (ratio < 95) indexNote.textContent = 'Moderate index block cache reuse. Check hottest read paths and index coverage.';
+    else indexNote.textContent = 'Healthy index block cache reuse for indexed access patterns.';
   }
 
   if (!topSqlList) return;
@@ -1676,10 +1684,14 @@ function updateConnectionsByApp(connectionsByApp) {
     if (!byApp[row.application_name]) {
       byApp[row.application_name] = { active: 0, idle: 0, waiting: 0, other: 0 };
     }
+    if (row.waiting) {
+      byApp[row.application_name].waiting += row.count;
+      continue;
+    }
     const st = (row.state || '').toLowerCase();
     if (st === 'active') byApp[row.application_name].active += row.count;
     else if (st === 'idle') byApp[row.application_name].idle += row.count;
-    else if (st === 'waiting' || st === 'idle in transaction (aborted)') byApp[row.application_name].waiting += row.count;
+    else if (st === 'idle in transaction (aborted)') byApp[row.application_name].waiting += row.count;
     else byApp[row.application_name].other += row.count;
   }
 
@@ -1714,6 +1726,12 @@ function updateConnectionsByApp(connectionsByApp) {
 // ── Schema Health Tab ────────────────────────────────────────────────
 
 function updateSchemaHealth(stats) {
+  pushWithLimit(schemaHealthHistory.unusedIndexes, (stats.unusedIndexes || []).length);
+  pushWithLimit(schemaHealthHistory.highSeqScanTables, (stats.highSeqScanTables || []).length);
+  pushWithLimit(schemaHealthHistory.deadTuplePressureTables, (stats.tableBloat || []).length);
+  pushWithLimit(schemaHealthHistory.vacuumAttentionTables, (stats.tablesNeedingVacuum || []).length);
+  updateSchemaHealthTrendNote();
+
   renderUnusedIndexes(stats.unusedIndexes || []);
   renderHighSeqScan(stats.highSeqScanTables || []);
   renderTableBloat(stats.tableBloat || []);
@@ -1721,11 +1739,28 @@ function updateSchemaHealth(stats) {
   renderTablesNeedingVacuum(stats.tablesNeedingVacuum || []);
 }
 
+function updateSchemaHealthTrendNote() {
+  const note = document.getElementById('schema-health-note');
+  if (!note) return;
+
+  const delta = (arr) => {
+    if (!arr || arr.length < 2) return 0;
+    return Number(arr[arr.length - 1] || 0) - Number(arr[arr.length - 2] || 0);
+  };
+
+  const unusedDelta = delta(schemaHealthHistory.unusedIndexes);
+  const seqDelta = delta(schemaHealthHistory.highSeqScanTables);
+  const deadDelta = delta(schemaHealthHistory.deadTuplePressureTables);
+  const vacuumDelta = delta(schemaHealthHistory.vacuumAttentionTables);
+
+  note.textContent = `Trend: unused indexes ${unusedDelta >= 0 ? '+' : ''}${unusedDelta}, high seq-scan tables ${seqDelta >= 0 ? '+' : ''}${seqDelta}, dead-tuple pressure tables ${deadDelta >= 0 ? '+' : ''}${deadDelta}, vacuum-attention tables ${vacuumDelta >= 0 ? '+' : ''}${vacuumDelta}`;
+}
+
 function renderUnusedIndexes(indexes) {
   const tbody = document.querySelector('#unused-indexes-table tbody');
   if (!tbody) return;
   if (!indexes.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--success-color);padding:20px;">No unused indexes detected.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--success-color);padding:20px;">No non-constraint unused indexes detected.</td></tr>';
     return;
   }
   tbody.innerHTML = indexes.map(idx => {
@@ -1766,7 +1801,7 @@ function renderTableBloat(tables) {
   const tbody = document.querySelector('#table-bloat-table tbody');
   if (!tbody) return;
   if (!tables.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--success-color);padding:20px;">No significant table bloat detected.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--success-color);padding:20px;">No significant dead-tuple pressure detected.</td></tr>';
     return;
   }
   tbody.innerHTML = tables.map(t => {
@@ -1820,17 +1855,19 @@ function renderTablesNeedingVacuum(tables) {
   const tbody = document.querySelector('#tables-needing-vacuum-table tbody');
   if (!tbody) return;
   if (!tables.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--success-color);padding:20px;">No tables need immediate vacuum.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--success-color);padding:20px;">No tables exceed autovacuum vacuum thresholds.</td></tr>';
     return;
   }
   tbody.innerHTML = tables.map(t => {
     const dead = t.n_dead_tup || 0;
+    const threshold = t.dead_tuple_threshold || 0;
     const cls = dead > 10000 ? 'row-crit' : dead > 2000 ? 'row-warn' : '';
     const lastVac = t.last_autovacuum ? new Date(t.last_autovacuum).toLocaleString() : 'Never';
     const lastAna = t.last_autoanalyze ? new Date(t.last_autoanalyze).toLocaleString() : 'Never';
     return `<tr class="${cls}">
       <td>${escHtml(t.table_name)}</td>
       <td style="text-align:right;font-weight:600;">${dead.toLocaleString()}</td>
+      <td style="text-align:right;color:var(--muted-color);">${threshold.toLocaleString()}</td>
       <td style="font-size:11px;color:var(--muted-color);">${lastVac}</td>
       <td style="font-size:11px;color:var(--muted-color);">${lastAna}</td>
     </tr>`;
@@ -1844,6 +1881,7 @@ let currentStats = null;
 const aiPanel = document.getElementById('ai-panel');
 const aiToggleBtn = document.getElementById('ai-toggle-btn');
 const aiCloseBtn = document.getElementById('ai-panel-close');
+const aiClearBtn = document.getElementById('ai-clear-btn');
 const aiSendBtn = document.getElementById('ai-send-btn');
 const aiQuestionInput = document.getElementById('ai-question');
 const aiResponseArea = document.getElementById('ai-response-area');
@@ -1864,35 +1902,74 @@ function closeAiPanel() {
 function buildContextSummary() {
   if (!currentStats) return '';
   const s = currentStats;
+  const parsedIndexHitRatio = Number(s.indexHitRatio);
+  const indexHitRatio = Number.isFinite(parsedIndexHitRatio) ? parsedIndexHitRatio : 100;
+  const sharedCacheHitRatioRaw = Number(s.sharedCacheHitRatio);
+  const sharedCacheHitRatio = Number.isFinite(sharedCacheHitRatioRaw)
+    ? `${sharedCacheHitRatioRaw.toFixed(1)}%`
+    : 'n/a';
+  const connPct = s.maxConnections > 0
+    ? ((s.totalConnections / s.maxConnections) * 100).toFixed(0)
+    : '0';
+  const health = (s.blockingLocks || []).length > 0 ? 'Degraded (blocking locks)' :
+    (s.waitingConnections || 0) > 0 ? 'Degraded (waiting sessions)' : 'OK';
+
   const lines = [
     `Database: ${s.dbName || '-'} | Size: ${s.size || '-'}`,
-    `Connections: ${s.activeConnections || 0} active, ${s.idleConnections || 0} idle, ${s.waitingConnections || 0} waiting / ${s.maxConnections || 0} max`,
+    `Health: ${health}`,
+    `Connections: ${s.activeConnections || 0} active, ${s.idleConnections || 0} idle, ${s.waitingConnections || 0} waiting / ${s.maxConnections || 0} max (${connPct}% capacity)`,
     `Blocking locks: ${(s.blockingLocks || []).length}`,
     `Long-running queries (>5s): ${s.longRunningQueries || 0}`,
     `Wait events: ${(s.waitEvents || []).map(w => `${w.type}=${w.count}`).join(', ') || 'none'}`,
-    `Index hit ratio: ${(s.indexHitRatio || 0).toFixed(1)}%`,
+    `Shared cache hit ratio: ${sharedCacheHitRatio}`,
+    `Index hit ratio: ${indexHitRatio.toFixed(1)}%`,
     `Oldest transaction age: ${s.oldestTransactionAgeSeconds || 0}s`,
     `Tables needing vacuum: ${(s.tablesNeedingVacuum || []).length}`,
     `Unused indexes: ${(s.unusedIndexes || []).length}`,
-    `Bloated tables: ${(s.tableBloat || []).length}`,
+    `Dead-tuple pressure tables: ${(s.tableBloat || []).length}`,
+    `High seq-scan tables: ${(s.highSeqScanTables || []).length}`,
   ];
+
   if ((s.blockingLocks || []).length > 0) {
-    lines.push(`Blocking lock: PID ${s.blockingLocks[0].blocking_pid} blocks PID ${s.blockingLocks[0].blocked_pid} on ${s.blockingLocks[0].locked_object}`);
+    const lockDetails = s.blockingLocks.slice(0, 3).map(l =>
+      `PID ${l.blocking_pid} (${l.blocking_user}) blocks PID ${l.blocked_pid} (${l.blocked_user}) on "${l.locked_object}" [${l.lock_mode}]`
+    );
+    lines.push(`\nBlocking lock details:\n${lockDetails.map(d => `  - ${d}`).join('\n')}`);
   }
+
   if ((s.pgStatStatements || []).length > 0) {
-    const top = s.pgStatStatements[0];
-    lines.push(`Top SQL: ${Number(top.total_time).toFixed(0)}ms total, ${top.calls} calls`);
+    const topStatements = s.pgStatStatements.slice(0, 3).map((st, i) =>
+      `#${i + 1}: ${Number(st.total_time).toFixed(0)}ms total, ${st.calls} calls, avg ${Number(st.mean_time).toFixed(1)}ms — ${String(st.query || '').substring(0, 80)}…`
+    );
+    lines.push(`\nTop SQL (pg_stat_statements):\n${topStatements.map(d => `  ${d}`).join('\n')}`);
   }
+
+  if ((s.highSeqScanTables || []).length > 0) {
+    const topSeq = s.highSeqScanTables.slice(0, 3).map(t =>
+      `${t.table_name} (${Number(t.seq_scan_pct).toFixed(0)}% seq, ${Number(t.row_count).toLocaleString()} rows)`
+    );
+    lines.push(`Top high seq-scan tables: ${topSeq.join(', ')}`);
+  }
+
+  if ((s.tableBloat || []).length > 0) {
+    const topBloat = s.tableBloat.slice(0, 3).map(t =>
+      `${t.table_name} (${Number(t.bloat_pct).toFixed(0)}% dead, ${Number(t.n_dead_tup).toLocaleString()} dead tuples)`
+    );
+    lines.push(`Top bloated tables: ${topBloat.join(', ')}`);
+  }
+
   return lines.join('\n');
 }
 
 const quickPromptMap = {
-  'analyze-health': 'Analyze the current database health status and explain what is causing any issues.',
-  'explain-locks': 'Explain the blocking lock situation in detail and provide steps to resolve it.',
-  'slow-queries': 'What are the long-running queries indicating and how should I address them?',
-  'top-sql': 'Review the top SQL statements by total time and suggest specific optimizations.',
-  'schema-health': 'Analyze the schema health — unused indexes, table bloat, and sequential scan patterns. What should I fix first?',
-  'vacuum-advice': 'Review the vacuum status and dead tuple counts. What vacuum actions should I take?',
+  'analyze-health': 'Analyze the current database health status and explain what is causing any issues. Walk me through each problem area step by step.',
+  'explain-locks': 'Explain the blocking lock situation in detail: which PIDs are involved, what are they doing, and what are my options to resolve it safely?',
+  'slow-queries': 'What are the long-running queries indicating and how should I address them? Show me queries I can run to investigate further.',
+  'top-sql': 'Review the top SQL statements by total time and suggest specific optimizations. Which query should I tackle first and why?',
+  'schema-health': 'Analyze the schema health — unused indexes, table bloat, and sequential scan patterns. Prioritize what I should fix first and explain the impact of each.',
+  'vacuum-advice': 'Review the vacuum status and dead tuple counts. What vacuum actions should I take, in what order, and what thresholds should I monitor?',
+  'connection-triage': 'Analyze the connection patterns: which applications are consuming connections, are there idle-in-transaction sessions, and am I at risk of connection exhaustion?',
+  'index-recommendations': 'Based on the high sequential scan tables and query patterns, what indexes should I consider creating? Show me the CREATE INDEX statements.',
 };
 
 const metricPromptMap = {
@@ -1906,9 +1983,151 @@ const metricPromptMap = {
   'autovacuum': 'Analyze the autovacuum status. Is autovacuum keeping up? Should I tune any settings?',
 };
 
-let _lastAiQuestion = '';
+const quirkyMessages = [
+  "🔍 Inspecting wait events and active sessions...",
+  "🔒 Tracing blocking chains and lock contenders...",
+  "📈 Correlating spikes across throughput and latency...",
+  "🧭 Mapping the connection-state distribution...",
+  "🧠 Interpreting cache hit behavior by workload pattern...",
+  "🧱 Checking temp spill signals for sort/hash pressure...",
+  "🧹 Reviewing dead tuples and vacuum pressure indicators...",
+  "🛠️ Verifying autovacuum progress and backlog risk...",
+  "📊 Ranking top SQL by total execution time...",
+  "🧪 Testing alternate hypotheses for this symptom...",
+  "🛰️ Sampling WAL and replication health signals...",
+  "📚 Comparing current telemetry with baseline patterns...",
+  "🪪 Identifying sessions most likely driving the issue...",
+  "🎯 Narrowing to one high-impact next investigation step...",
+  "🧯 Looking for immediate mitigation opportunities...",
+  "🧵 Stitching metrics into a coherent incident story...",
+  "🧰 Validating if index strategy matches access patterns...",
+  "📉 Checking for sequential scan hotspots and plan drift...",
+  "✅ Summarizing findings with confidence level and risk...",
+  "➡️ Preparing the next diagnostic query if needed..."
+];
 
-function _appendAiMessage(role, htmlContent) {
+let aiLoadingMessageInterval = null;
+let aiLoadingMessageIndex = 0;
+
+let _lastAiQuestion = '';
+const _aiAutoFixState = {
+  attempts: 0,
+  maxAttempts: 5,
+  history: []
+};
+const _investigationState = {
+  executedSql: [],
+  askedQuestions: [],
+};
+
+function _normalizeSqlForComparison(sql) {
+  return String(sql || '')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--.*$/gm, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function _normalizeQuestionForComparison(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function _rememberQuestion(question) {
+  const norm = _normalizeQuestionForComparison(question);
+  if (!norm) return;
+  if (_investigationState.askedQuestions.includes(norm)) return;
+  _investigationState.askedQuestions.push(norm);
+  if (_investigationState.askedQuestions.length > 30) {
+    _investigationState.askedQuestions.shift();
+  }
+}
+
+function _rememberExecutedSql(sql) {
+  const norm = _normalizeSqlForComparison(sql);
+  if (!norm) return;
+  if (_investigationState.executedSql.includes(norm)) return;
+  _investigationState.executedSql.push(norm);
+  if (_investigationState.executedSql.length > 20) {
+    _investigationState.executedSql.shift();
+  }
+}
+
+function _resetAiAutoFixState() {
+  _aiAutoFixState.attempts = 0;
+  _aiAutoFixState.history = [];
+}
+
+function _resetInvestigationState() {
+  _investigationState.executedSql = [];
+  _investigationState.askedQuestions = [];
+}
+
+function _buildAutoFixHistorySummary() {
+  if (_aiAutoFixState.history.length === 0) return 'No attempts were recorded.';
+  return _aiAutoFixState.history.map((entry, index) => {
+    const sql = String(entry.sql || '').replace(/\s+/g, ' ').trim();
+    const compactSql = sql.length > 180 ? `${sql.slice(0, 180)}...` : sql;
+    return `${index + 1}. Error: ${entry.error}\n   SQL: ${compactSql}`;
+  }).join('\n');
+}
+
+function _requestAiAutoFixForQueryError(data) {
+  const sql = String(data.sql || '').trim();
+  const error = String(data.error || 'Unknown query execution error').trim();
+
+  _aiAutoFixState.attempts += 1;
+  _aiAutoFixState.history.push({
+    sql,
+    error,
+    at: new Date().toISOString()
+  });
+
+  if (_aiAutoFixState.attempts > _aiAutoFixState.maxAttempts) {
+    const summary = _buildAutoFixHistorySummary();
+    _appendAiMessage(
+      'assistant',
+      _parseAiMarkdown(
+        `I attempted to auto-fix this query ${_aiAutoFixState.maxAttempts} times and it is still failing.\n\n` +
+        `Please share how you want to proceed (for example: adjust intent, simplify query scope, or provide schema details).\n\n` +
+        `What I tried:\n\n${summary}`
+      )
+    );
+    renderAiLoading(false);
+    return;
+  }
+
+  const summary = _buildAutoFixHistorySummary();
+  const autoFixQuestion = [
+    'The last SQL query execution failed in PostgreSQL.',
+    'Analyze the failure and produce a corrected query.',
+    'Respond with:',
+    '1) A brief explanation of why it failed',
+    '2) What you changed',
+    '3) A corrected SQL query in a ```sql fenced block',
+    '4) A short note asking the user to run the fixed query again',
+    '',
+    `Attempt: ${_aiAutoFixState.attempts}/${_aiAutoFixState.maxAttempts}`,
+    `Failed SQL:\n${sql}`,
+    `Error:\n${error}`,
+    '',
+    'Previous attempts (oldest to newest):',
+    summary
+  ].join('\n');
+
+  _lastAiQuestion = autoFixQuestion;
+  renderAiLoading(true);
+  vscode.postMessage({
+    command: 'askAI',
+    question: autoFixQuestion,
+    context: buildContextSummary(),
+  });
+}
+
+function _appendAiMessage(role, htmlContent, meta = {}) {
   if (!aiResponseArea) return;
   const welcome = aiResponseArea.querySelector('.ai-welcome');
   if (welcome) welcome.remove();
@@ -1928,18 +2147,67 @@ function _appendAiMessage(role, htmlContent) {
   content.innerHTML = htmlContent;
 
   bubble.appendChild(content);
+
+  if (role === 'user' && meta.contextSummary) {
+    const rawContext = String(meta.contextSummary || '').trim();
+    const maxChars = 650;
+    const lines = rawContext.split('\n');
+    const maxLines = 14;
+    const clippedByChars = rawContext.length > maxChars;
+    const clippedByLines = lines.length > maxLines;
+    const clippedText = clippedByLines
+      ? lines.slice(0, maxLines).join('\n')
+      : rawContext;
+    const finalText = clippedByChars
+      ? `${clippedText.slice(0, maxChars)}\n... (context truncated)`
+      : (clippedByLines ? `${clippedText}\n... (context truncated)` : clippedText);
+
+    const details = document.createElement('details');
+    details.className = 'ai-context-attachment';
+    details.style.margin = '10px 0 0 0';
+    details.style.border = '1px solid rgba(128, 128, 128, 0.35)';
+    details.style.borderRadius = '6px';
+    details.style.background = 'rgba(128, 128, 128, 0.08)';
+    details.style.overflow = 'hidden';
+
+    const summary = document.createElement('summary');
+    summary.style.cursor = 'pointer';
+    summary.style.listStyle = 'none';
+    summary.style.padding = '6px 10px';
+    summary.style.fontSize = '0.78rem';
+    summary.style.color = 'var(--muted-color)';
+    summary.style.userSelect = 'none';
+    summary.textContent = 'Attachment: Dashboard context snapshot';
+
+    const body = document.createElement('pre');
+    body.className = 'ai-context-quote';
+    body.style.margin = '0';
+    body.style.padding = '8px 10px 10px 10px';
+    body.style.borderTop = '1px solid rgba(128, 128, 128, 0.25)';
+    body.style.fontSize = '0.78rem';
+    body.style.color = 'var(--muted-color)';
+    body.style.whiteSpace = 'pre-wrap';
+    body.style.maxHeight = '180px';
+    body.style.overflow = 'auto';
+    body.textContent = finalText;
+
+    details.appendChild(summary);
+    details.appendChild(body);
+    bubble.appendChild(details);
+  }
+
   msgDiv.appendChild(roleLabel);
   msgDiv.appendChild(bubble);
   aiResponseArea.appendChild(msgDiv);
 
   if (role === 'assistant') {
-    _addSqlRunButtons(msgDiv);
+    _addSqlRunButtons(msgDiv, meta.runQuestion);
   }
 
   aiResponseArea.scrollTop = aiResponseArea.scrollHeight;
 }
 
-function _addSqlRunButtons(msgDiv) {
+function _addSqlRunButtons(msgDiv, runQuestionOverride) {
   msgDiv.querySelectorAll('.ai-code-block').forEach(block => {
     const langEl = block.querySelector('.ai-code-lang');
     const lang = langEl ? langEl.textContent.trim().toUpperCase() : '';
@@ -1961,7 +2229,8 @@ function _addSqlRunButtons(msgDiv) {
     confirmRow.querySelector('.ai-run-ok-btn').addEventListener('click', () => {
       const sql = codeEl.textContent.trim();
       confirmRow.innerHTML = '<span class="ai-run-executing"><span class="ai-run-spinner"></span> Executing query…</span>';
-      vscode.postMessage({ command: 'executeQueryForAI', sql, question: _lastAiQuestion });
+      const runQuestion = runQuestionOverride || _lastAiQuestion || 'Investigate this SQL query result and explain findings.';
+      vscode.postMessage({ command: 'executeQueryForAI', sql, question: runQuestion });
     });
 
     confirmRow.querySelector('.ai-run-skip-btn').addEventListener('click', () => {
@@ -1983,8 +2252,14 @@ function _handleQueryResult(data) {
     wrapper.innerHTML = `<div class="ai-result-error"><strong>Query error:</strong> ${escHtml(data.error)}</div>`;
     aiResponseArea.appendChild(wrapper);
     aiResponseArea.scrollTop = aiResponseArea.scrollHeight;
+    _requestAiAutoFixForQueryError(data);
     return;
   }
+
+  const hadAutoFixAttempt = _aiAutoFixState.history.length > 0;
+  _rememberExecutedSql(data.sql || '');
+  // Reset retry loop after any successful execution.
+  _resetAiAutoFixState();
 
   const rowCount = data.rowCount ?? (data.rows ? data.rows.length : 0);
   let html = `<div class="ai-result-meta">Query returned ${rowCount} row${rowCount !== 1 ? 's' : ''}`;
@@ -2000,25 +2275,84 @@ function _handleQueryResult(data) {
   aiResponseArea.appendChild(wrapper);
   aiResponseArea.scrollTop = aiResponseArea.scrollHeight;
 
-  _sendResultsToAI(data);
+  _sendResultsToAI(data, { summarizeAfterFix: hadAutoFixAttempt });
 }
 
-function _sendResultsToAI(data) {
+function _sendResultsToAI(data, options = {}) {
+  const summarizeAfterFix = Boolean(options.summarizeAfterFix);
   const rowCount = data.rowCount ?? (data.rows ? data.rows.length : 0);
   let resultContext = `Query results (${rowCount} row${rowCount !== 1 ? 's' : ''}):\n`;
 
   if (data.columns && data.rows && data.rows.length > 0) {
     resultContext += data.columns.join(' | ') + '\n';
     resultContext += data.rows.slice(0, 50).map(row =>
-      data.columns.map(col => row[col] === null ? 'NULL' : String(row[col])).join(' | ')
+      data.columns.map(col => {
+        const normalized = normalizeResultValue(row[col]);
+        return normalized === null || normalized === undefined ? 'NULL' : String(normalized);
+      }).join(' | ')
     ).join('\n');
     if (data.rows.length > 50) resultContext += `\n… (${data.rows.length - 50} more rows truncated)`;
   } else {
     resultContext += '(no rows returned)';
   }
 
-  const question = (data.question || 'Answer the original question using the query results below.') +
-    '\n\n' + resultContext;
+  const zeroRowGuidance = rowCount === 0
+    ? [
+      'Important: the SQL execution succeeded and returned 0 rows.',
+      'Treat this as an empty result set, not as a query failure.',
+      'Explain what this implies and whether this is expected for current filters/conditions.'
+    ].join('\n')
+    : '';
+
+  const previousSql = _investigationState.executedSql.length > 0
+    ? _investigationState.executedSql.map((q, i) => `${i + 1}. ${q}`).join('\n')
+    : 'None';
+  const previousQuestions = _investigationState.askedQuestions.length > 0
+    ? _investigationState.askedQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')
+    : 'None';
+
+  const question = summarizeAfterFix
+    ? [
+      'The corrected query executed successfully.',
+      'Summarize what the returned data means for the user’s original problem in concise terms.',
+      'Explain what failed previously and what was fixed to make this run succeed.',
+      'Do NOT generate another SQL query unless the data is clearly insufficient to answer the question.',
+      'If more data is required, provide exactly one targeted SQL query and explain why it is needed.',
+      '',
+      'Original repair request and context:',
+      data.question || 'N/A',
+      '',
+      zeroRowGuidance,
+      zeroRowGuidance ? '' : '',
+      'Previously executed SQL (do not repeat):',
+      previousSql,
+      '',
+      'Previously asked follow-up questions (do not repeat):',
+      previousQuestions,
+      '',
+      resultContext
+    ].join('\n')
+    : [
+      (data.question || 'Answer the original question using the query results below.'),
+      '',
+      'Important investigation rules:',
+      '- Do not repeat a previously executed SQL query.',
+      '- Do not repeat previously asked follow-up questions.',
+      '- If current evidence is enough, stop querying and provide a final investigation summary.',
+      '- In final summary, explicitly state: (a) major finding yes/no, (b) suspicious activity yes/no on current thread.',
+      '- If nothing suspicious is found, clearly say so and switch to the next likely issue area.',
+      '- Only propose one new SQL query if genuinely required and from a different diagnostic angle.',
+      '',
+      zeroRowGuidance,
+      zeroRowGuidance ? '' : '',
+      'Previously executed SQL (do not repeat):',
+      previousSql,
+      '',
+      'Previously asked follow-up questions (do not repeat):',
+      previousQuestions,
+      '',
+      resultContext
+    ].join('\n');
 
   renderAiLoading(true);
   vscode.postMessage({ command: 'askAI', question, context: buildContextSummary() });
@@ -2027,7 +2361,8 @@ function _sendResultsToAI(data) {
 function _downloadQueryCsv(data) {
   const { columns, rows } = data;
   const esc = val => {
-    const s = val === null ? '' : String(val);
+    const normalized = normalizeResultValue(val);
+    const s = normalized === null || normalized === undefined ? '' : String(normalized);
     return (s.includes(',') || s.includes('"') || s.includes('\n'))
       ? `"${s.replace(/"/g, '""')}"` : s;
   };
@@ -2035,36 +2370,169 @@ function _downloadQueryCsv(data) {
   vscode.postMessage({ command: 'downloadCsv', csv: lines.join('\n'), filename: 'query_results.csv' });
 }
 
+function normalizeResultValue(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeResultValue(item));
+  }
+
+  if (typeof value === 'object') {
+    if (typeof value.toPostgres === 'function') {
+      try {
+        return value.toPostgres();
+      } catch {
+        // Fallback to JSON serialization.
+      }
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
 function sendAiQuestion(question) {
   if (!question || !question.trim()) return;
   openAiPanel();
   const q = question.trim();
+  const contextSummary = buildContextSummary();
+  _resetAiAutoFixState();
+  _rememberQuestion(q);
   _lastAiQuestion = q;
-  _appendAiMessage('user', escHtml(q).replace(/\n/g, '<br>'));
+  _appendAiMessage('user', escHtml(q).replace(/\n/g, '<br>'), { contextSummary });
   vscode.postMessage({
     command: 'askAI',
     question: q,
-    context: buildContextSummary(),
+    context: contextSummary,
   });
   if (aiQuestionInput) aiQuestionInput.value = '';
 }
 
+function clearConversation() {
+  if (!aiResponseArea) return;
+  aiResponseArea.innerHTML = `<div class="ai-welcome">
+    <p>Ask about any metric, or click a quick-action above.</p>
+    <p style="font-size: 0.8rem; color: var(--muted-color);">Context from the current dashboard snapshot is sent with each question.</p>
+  </div>`;
+  _resetAiAutoFixState();
+  _resetInvestigationState();
+  _lastAiQuestion = '';
+  vscode.postMessage({ command: 'clearConversation' });
+}
+
 function renderAiLoading(loading) {
   if (!aiResponseArea) return;
-  const existing = aiResponseArea.querySelector('.ai-loading-dots');
+  const existing = aiResponseArea.querySelector('.ai-loading-quirky');
   if (loading && !existing) {
-    const dots = document.createElement('div');
-    dots.className = 'ai-loading-dots';
-    dots.innerHTML = '<span></span><span></span><span></span>';
-    aiResponseArea.appendChild(dots);
+    aiLoadingMessageIndex = Math.floor(Math.random() * quirkyMessages.length);
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'ai-loading-quirky';
+    loadingEl.textContent = quirkyMessages[aiLoadingMessageIndex];
+    aiResponseArea.appendChild(loadingEl);
+
+    if (aiLoadingMessageInterval) {
+      clearInterval(aiLoadingMessageInterval);
+    }
+    aiLoadingMessageInterval = setInterval(() => {
+      const activeEl = aiResponseArea.querySelector('.ai-loading-quirky');
+      if (!activeEl) return;
+      aiLoadingMessageIndex = (aiLoadingMessageIndex + 1) % quirkyMessages.length;
+      activeEl.textContent = quirkyMessages[aiLoadingMessageIndex];
+    }, 2500);
+
     aiResponseArea.scrollTop = aiResponseArea.scrollHeight;
   } else if (!loading && existing) {
+    if (aiLoadingMessageInterval) {
+      clearInterval(aiLoadingMessageInterval);
+      aiLoadingMessageInterval = null;
+    }
     existing.remove();
   }
 }
 
+function _extractNextSteps(text) {
+  // Extract {"next_steps": [...]} JSON block at end of response
+  const match = text.match(/\{[\s\S]*?"next_steps"\s*:\s*\[[\s\S]*?\]\s*\}/);
+  if (!match) return { cleanText: text, nextSteps: [] };
+  try {
+    const parsed = JSON.parse(match[0]);
+    const nextSteps = Array.isArray(parsed.next_steps) ? parsed.next_steps : [];
+    const cleanText = text.slice(0, match.index).trimEnd();
+    return { cleanText, nextSteps };
+  } catch (_) {
+    return { cleanText: text, nextSteps: [] };
+  }
+}
+
+function _extractFollowUpQuestions(text) {
+  // Extract numbered follow-up questions from "**Follow-up questions:**\n1. ...\n2. ..."
+  const questions = [];
+  const sectionMatch = text.match(/\*\*Follow-up questions:\*\*\s*\n((?:\d+\.\s*.+\n?)+)/i);
+  if (sectionMatch) {
+    const block = sectionMatch[1];
+    const itemRegex = /\d+\.\s*(.+)/g;
+    let m;
+    while ((m = itemRegex.exec(block)) !== null) {
+      questions.push(m[1].trim());
+    }
+  }
+  const deduped = [];
+  const seen = new Set();
+  for (const q of questions) {
+    const norm = _normalizeQuestionForComparison(q);
+    if (!norm || seen.has(norm) || _investigationState.askedQuestions.includes(norm)) continue;
+    seen.add(norm);
+    deduped.push(q);
+  }
+  return deduped;
+}
+
+function _renderSuggestionChips(container, items, isFollowUp) {
+  if (!items || items.length === 0) return;
+  const chipRow = document.createElement('div');
+  chipRow.className = isFollowUp ? 'ai-followup-chips' : 'ai-nextstep-chips';
+  items.forEach((item, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'ai-suggestion-chip';
+    btn.textContent = isFollowUp ? `${idx + 1}. ${item}` : item;
+    btn.title = item;
+    btn.addEventListener('click', () => {
+      const q = isFollowUp ? String(idx + 1) : item;
+      sendAiQuestion(q);
+    });
+    chipRow.appendChild(btn);
+  });
+  container.appendChild(chipRow);
+}
+
 function renderAiResponse(text) {
-  _appendAiMessage('assistant', _parseAiMarkdown(text));
+  const { cleanText, nextSteps } = _extractNextSteps(text);
+  const followUps = _extractFollowUpQuestions(cleanText);
+
+  for (const followUp of followUps) {
+    _rememberQuestion(followUp);
+  }
+
+  _lastAiQuestion = cleanText;
+  _appendAiMessage('assistant', _parseAiMarkdown(cleanText), { runQuestion: cleanText });
+
+  // Find the last assistant message bubble to attach chips to
+  const messages = aiResponseArea ? aiResponseArea.querySelectorAll('.ai-message.assistant') : [];
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg) {
+    const bubble = lastMsg.querySelector('.ai-message-bubble');
+    if (bubble) {
+      if (followUps.length > 0) _renderSuggestionChips(bubble, followUps, true);
+      if (nextSteps.length > 0) _renderSuggestionChips(bubble, nextSteps, false);
+    }
+  }
+
   if (aiResponseArea) aiResponseArea.scrollTop = aiResponseArea.scrollHeight;
 }
 
@@ -2161,6 +2629,10 @@ if (aiToggleBtn) {
 
 if (aiCloseBtn) {
   aiCloseBtn.addEventListener('click', closeAiPanel);
+}
+
+if (aiClearBtn) {
+  aiClearBtn.addEventListener('click', clearConversation);
 }
 
 if (aiSendBtn) {
