@@ -5,7 +5,7 @@ All notable changes to the PostgreSQL Explorer extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.1] - 2026-04-28
+## [1.2.2] - 2026-04-28
 
 ### Added
 - **Sliding-window result streaming**: Optional PostgreSQL `SCROLL` cursor execution for eligible parameter-free `SELECT` queries (`postgresExplorer.performance.slidingWindowSelects`, default on). Keeps a bounded row buffer in the grid and extension host; scrolling fetches the next/previous window. Configurable cap via `postgresExplorer.performance.slidingWindowRowCap` (10–500 rows). Dismissible streaming hint banner with optional mute for the session/workspace.
