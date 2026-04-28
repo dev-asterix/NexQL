@@ -5,6 +5,18 @@ All notable changes to the PostgreSQL Explorer extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-04-28
+
+### Added
+- **Sliding-window result streaming**: Optional PostgreSQL `SCROLL` cursor execution for eligible parameter-free `SELECT` queries (`postgresExplorer.performance.slidingWindowSelects`, default on). Keeps a bounded row buffer in the grid and extension host; scrolling fetches the next/previous window. Configurable cap via `postgresExplorer.performance.slidingWindowRowCap` (10–500 rows). Dismissible streaming hint banner with optional mute for the session/workspace.
+- **`bytea` display modes**: Setting `postgresExplorer.query.byteaDisplayFormat` — `hex0x` (default), PostgreSQL `\x` hex text, or JSON-oriented debug shape — applied consistently in result grids and history.
+- **SQL Assistant turn controls**: Regenerate the latest assistant reply without duplicating the user turn; resend / branch from a chosen user message (truncate history after that turn and rerun). Attach-to-assistant flows can prefill the composer when a message string is supplied (toast copy updated accordingly).
+- **Result grid toolbar & editing workflow**: Result identity bar, consolidated toolbar/footer, view selector, inline banners, and a commit-confirmation step for pending cell edits. Source notebook cell index is surfaced for returning focus to the executing cell.
+
+### Changed
+- **Export vs Auto-LIMIT**: Query results carry `exportQuery` (original SQL before Auto-LIMIT) so full CSV/JSON/Excel exports can rerun the unrestricted statement when the grid was limited for display.
+- **Renderer & executor integration**: Server-side cursor sessions coordinate with the webview for windowed fetches; grid-derived queries and edit-commit preferences are handled in the extension host so UI actions stay consistent with execution policy.
+
 ## [1.2.0] - 2026-04-19
 
 ### Added

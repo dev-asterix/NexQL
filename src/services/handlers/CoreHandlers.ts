@@ -4,6 +4,7 @@ import { ConnectionUtils } from '../../utils/connectionUtils';
 import { WorkspaceStateService } from '../WorkspaceStateService';
 import { PostgresMetadata } from '../../common/types';
 import { DatabaseTreeItem } from '../../providers/DatabaseTreeProvider';
+import { ConnectionManager } from '../ConnectionManager';
 
 export class ShowConnectionSwitcherHandler implements IMessageHandler {
   constructor(private statusBar: any) { }
@@ -300,28 +301,171 @@ export class ImportRequestHandler implements IMessageHandler {
 }
 
 export class ExportRequestHandler implements IMessageHandler {
-  async handle(message: any) {
-    // This logic was in NotebookKernel previously
-    // It requires UI interaction so it fits here.
-    const { rows: displayRows, columns } = message;
+  private sanitizeFilenamePart(value: string): string {
+    return value
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 80);
+  }
 
-    const selection = await vscode.window.showQuickPick(['Save as CSV', 'Save as JSON', 'Copy to Clipboard']);
-    if (!selection) return;
+  private inferDefaultBasename(tableInfo?: any): string {
+    const schema = typeof tableInfo?.schema === 'string' ? this.sanitizeFilenamePart(tableInfo.schema) : '';
+    const table = typeof tableInfo?.table === 'string' ? this.sanitizeFilenamePart(tableInfo.table) : '';
+    if (schema && table) {
+      return `${schema}_${table}_export`;
+    }
+    if (table) {
+      return `${table}_export`;
+    }
+    return 'query_export';
+  }
 
-    const rowsToExport = displayRows;
+  private getDefaultExportUri(ext: 'csv' | 'json' | 'md', tableInfo?: any): vscode.Uri {
+    const filename = `${this.inferDefaultBasename(tableInfo)}.${ext}`;
+    const wsFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (wsFolder) {
+      return vscode.Uri.joinPath(wsFolder, filename);
+    }
+    return vscode.Uri.file(filename);
+  }
 
-    if (selection === 'Copy to Clipboard') {
-      const csv = this.rowsToCsv(rowsToExport, columns);
+  private async openSavedFile(uri: vscode.Uri): Promise<void> {
+    try {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: false });
+    } catch (err) {
+      console.warn('Export file open failed:', err);
+    }
+  }
+
+  private isReadOnlyExportQuery(query: string): boolean {
+    const clean = query.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
+    return /^\s*(SELECT|WITH)\b/i.test(clean);
+  }
+
+  async handle(message: any, context: { editor?: vscode.NotebookEditor }) {
+    const {
+      rows: displayRows = [],
+      columns = [],
+      query,
+      format,
+      tableInfo,
+    } = message ?? {};
+
+    const effectiveFormat: 'csv' | 'json' | 'markdown' | 'clipboard' | 'sqlinsert' =
+      format === 'json' ||
+      format === 'markdown' ||
+      format === 'clipboard' ||
+      format === 'sqlinsert'
+        ? format
+        : 'csv';
+
+    let rowsToExport: any[] = Array.isArray(displayRows) ? displayRows : [];
+    let columnsToExport: string[] = Array.isArray(columns) ? columns : [];
+
+    // Re-run query for full export when we have enough context.
+    if (typeof query === 'string' && query.trim() && context.editor) {
+      if (!this.isReadOnlyExportQuery(query)) {
+        vscode.window.showWarningMessage(
+          'Full export rerun is only enabled for SELECT queries; exporting visible rows only.',
+        );
+      } else {
+      const metadata = context.editor.notebook.metadata as PostgresMetadata | undefined;
+      const connectionId = metadata?.connectionId;
+      if (!connectionId) {
+        vscode.window.showWarningMessage('No active connection found; exporting visible rows only.');
+      } else {
+        const connection = ConnectionUtils.findConnection(connectionId);
+        if (!connection) {
+          vscode.window.showWarningMessage('Connection configuration missing; exporting visible rows only.');
+        } else {
+          try {
+            const client = await ConnectionManager.getInstance().getSessionClient(
+              {
+                id: connection.id,
+                host: connection.host,
+                port: connection.port,
+                username: connection.username,
+                database: metadata?.databaseName || connection.database,
+                name: connection.name,
+              } as any,
+              context.editor.notebook.uri.toString(),
+            );
+            const result = await client.query(query);
+            rowsToExport = result.rows || [];
+            const queriedColumns = result.fields?.map((f: any) => f.name) || [];
+            columnsToExport =
+              queriedColumns.length > 0
+                ? queriedColumns
+                : rowsToExport.length > 0
+                  ? Object.keys(rowsToExport[0])
+                  : columnsToExport;
+          } catch (err: any) {
+            vscode.window.showWarningMessage(
+              `Full export query failed (${err?.message ?? String(err)}); exporting visible rows only.`,
+            );
+          }
+        }
+      }
+      }
+    }
+
+    if (effectiveFormat === 'clipboard') {
+      const csv = this.rowsToCsv(rowsToExport, columnsToExport);
       await vscode.env.clipboard.writeText(csv);
-      vscode.window.showInformationMessage('Copied to clipboard');
-    } else if (selection === 'Save as CSV') {
-      const csv = this.rowsToCsv(rowsToExport, columns);
-      const uri = await vscode.window.showSaveDialog({ filters: { 'CSV': ['csv'] } });
-      if (uri) await vscode.workspace.fs.writeFile(uri, Buffer.from(csv));
-    } else if (selection === 'Save as JSON') {
+      vscode.window.showInformationMessage(
+        `Copied ${rowsToExport.length.toLocaleString()} rows to clipboard`,
+      );
+      return;
+    }
+
+    if (effectiveFormat === 'sqlinsert') {
+      const sql = this.rowsToSqlInsert(rowsToExport, columnsToExport, tableInfo);
+      await vscode.env.clipboard.writeText(sql);
+      vscode.window.showInformationMessage(
+        `Copied SQL INSERT script (${rowsToExport.length.toLocaleString()} rows)`,
+      );
+      return;
+    }
+
+    if (effectiveFormat === 'csv') {
+      const csv = this.rowsToCsv(rowsToExport, columnsToExport);
+      const uri = await vscode.window.showSaveDialog({
+        filters: { CSV: ['csv'] },
+        defaultUri: this.getDefaultExportUri('csv', tableInfo),
+      });
+      if (uri) {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(csv));
+        await this.openSavedFile(uri);
+        vscode.window.showInformationMessage(`Exported ${rowsToExport.length.toLocaleString()} rows (CSV)`);
+      }
+      return;
+    }
+
+    if (effectiveFormat === 'json') {
       const json = JSON.stringify(rowsToExport, null, 2);
-      const uri = await vscode.window.showSaveDialog({ filters: { 'JSON': ['json'] } });
-      if (uri) await vscode.workspace.fs.writeFile(uri, Buffer.from(json));
+      const uri = await vscode.window.showSaveDialog({
+        filters: { JSON: ['json'] },
+        defaultUri: this.getDefaultExportUri('json', tableInfo),
+      });
+      if (uri) {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(json));
+        await this.openSavedFile(uri);
+        vscode.window.showInformationMessage(`Exported ${rowsToExport.length.toLocaleString()} rows (JSON)`);
+      }
+      return;
+    }
+
+    const markdown = this.rowsToMarkdown(rowsToExport, columnsToExport);
+    const uri = await vscode.window.showSaveDialog({
+      filters: { Markdown: ['md'] },
+      defaultUri: this.getDefaultExportUri('md', tableInfo),
+    });
+    if (uri) {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(markdown));
+      await this.openSavedFile(uri);
+      vscode.window.showInformationMessage(`Exported ${rowsToExport.length.toLocaleString()} rows (Markdown)`);
     }
   }
 
@@ -334,11 +478,134 @@ export class ExportRequestHandler implements IMessageHandler {
     }).join(',')).join('\n');
     return `${header}\n${body}`;
   }
+
+  private rowsToMarkdown(rows: any[], columns: string[]): string {
+    const header = `| ${columns.join(' | ')} |`;
+    const separator = `| ${columns.map(() => '---').join(' | ')} |`;
+    const body = rows
+      .map((row) => {
+        return `| ${columns
+          .map((col) => {
+            const val = row[col];
+            if (val === null || val === undefined) return 'NULL';
+            const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+            return str.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+          })
+          .join(' | ')} |`;
+      })
+      .join('\n');
+    return `${header}\n${separator}\n${body}`;
+  }
+
+  private rowsToSqlInsert(rows: any[], columns: string[], tableInfo?: any): string {
+    if (!tableInfo?.schema || !tableInfo?.table) {
+      return '-- Table information not available for INSERT script';
+    }
+    const tableName = `"${String(tableInfo.schema).replace(/"/g, '""')}"."${String(
+      tableInfo.table,
+    ).replace(/"/g, '""')}"`;
+    const cols = columns.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(', ');
+
+    return rows
+      .map((row) => {
+        const values = columns
+          .map((col) => {
+            const val = row[col];
+            if (val === null || val === undefined) return 'NULL';
+            if (typeof val === 'number') return String(val);
+            if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+            const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+            return `'${str.replace(/'/g, "''")}'`;
+          })
+          .join(', ');
+        return `INSERT INTO ${tableName} (${cols}) VALUES (${values});`;
+      })
+      .join('\n');
+  }
 }
 
 export class ShowErrorMessageHandler implements IMessageHandler {
   async handle(message: any) {
     vscode.window.showErrorMessage(message.message);
+  }
+}
+
+export class RunDerivedQueryHandler implements IMessageHandler {
+  private isReadOnlyQuery(query: string): boolean {
+    const clean = query.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
+    return /^\s*(SELECT|WITH)\b/i.test(clean);
+  }
+
+  async handle(message: any, context: { editor?: vscode.NotebookEditor }) {
+    if (!context.editor) {
+      return;
+    }
+
+    const sql = typeof message?.query === 'string' ? message.query.trim() : '';
+    if (!sql) {
+      vscode.window.showErrorMessage('No derived query provided.');
+      return;
+    }
+    if (!this.isReadOnlyQuery(sql)) {
+      vscode.window.showErrorMessage('Only SELECT/WITH derived queries are allowed.');
+      return;
+    }
+
+    const notebook = context.editor.notebook;
+    const insertionIndex = Math.min(
+      notebook.cellCount,
+      Math.max(0, (context.editor.selection?.end ?? notebook.cellCount)),
+    );
+
+    const fullDatasetRequested =
+      message?.fullDataset === true ||
+      (typeof message?.source === 'string' && message.source.startsWith('streaming-'));
+    const cellSql = fullDatasetRequested ? `-- pgstudio:full-dataset\n${sql}` : sql;
+    const cell = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, cellSql, 'sql');
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(notebook.uri, [vscode.NotebookEdit.insertCells(insertionIndex, [cell])]);
+    const applied = await vscode.workspace.applyEdit(edit);
+    if (!applied) {
+      vscode.window.showErrorMessage('Failed to insert derived query cell.');
+      return;
+    }
+
+    const editor = await vscode.window.showNotebookDocument(notebook, { preserveFocus: false });
+    const range = new vscode.NotebookRange(insertionIndex, insertionIndex + 1);
+    editor.revealRange(range, vscode.NotebookEditorRevealType.InCenterIfOutsideViewport);
+    await vscode.commands.executeCommand('notebook.cell.execute', {
+      ranges: [range],
+      document: notebook.uri,
+    });
+  }
+}
+
+const SKIP_GRID_COMMIT_CONFIRM_KEY = 'postgresExplorer.skipGridCommitConfirm';
+
+/** Persist "don't ask again" for notebook grid Commit → saveChanges flow. */
+export class GridCommitPreferenceHandler implements IMessageHandler {
+  constructor(private readonly extensionContext: vscode.ExtensionContext) {}
+
+  async handle(
+    message: any,
+    context: {
+      postMessage?: (msg: any) => Thenable<boolean>;
+      editor?: vscode.NotebookEditor;
+    },
+  ): Promise<void> {
+    if (message.action === 'get' && message.requestId && context.postMessage) {
+      const skipConfirm = this.extensionContext.globalState.get<boolean>(SKIP_GRID_COMMIT_CONFIRM_KEY) === true;
+      await context.postMessage({
+        type: 'gridCommitPreferenceResponse',
+        requestId: message.requestId,
+        skipConfirm,
+      });
+      return;
+    }
+
+    if (message.action === 'set' && typeof message.skipConfirm === 'boolean') {
+      await this.extensionContext.globalState.update(SKIP_GRID_COMMIT_CONFIRM_KEY, message.skipConfirm);
+    }
   }
 }
 
@@ -350,6 +617,48 @@ export class RetryCellHandler implements IMessageHandler {
     const cells = notebook.getCells();
     // Find the cell whose query matches, or just re-run the active selection
     await vscode.commands.executeCommand('notebook.cell.execute');
+  }
+}
+
+/** Result hover toolbar: focus source cell then optional command (Expand / Ask AI / Save). */
+export class NotebookOutputToolbarHandler implements IMessageHandler {
+  async handle(message: any, context: { editor?: vscode.NotebookEditor }): Promise<void> {
+    const idx = typeof message?.cellIndex === 'number' ? message.cellIndex : -1;
+    const action = message?.action as string | undefined;
+    const editor = context.editor;
+
+    if (!editor || idx < 0 || idx >= editor.notebook.cellCount) {
+      vscode.window.showWarningMessage(
+        'Could not find the SQL cell for this result. Re-run the query to refresh the output.',
+      );
+      return;
+    }
+
+    const notebook = editor.notebook;
+    const cell = notebook.cellAt(idx);
+    const range = new vscode.NotebookRange(idx, idx + 1);
+
+    await vscode.window.showNotebookDocument(notebook, { preserveFocus: false });
+    const active = vscode.window.activeNotebookEditor;
+    if (!active || active.notebook.uri.toString() !== notebook.uri.toString()) {
+      return;
+    }
+
+    active.selection = range;
+    active.revealRange(range, vscode.NotebookEditorRevealType.InCenterIfOutsideViewport);
+
+    if (action === 'expand') {
+      return;
+    }
+
+    if (action === 'aiAssist') {
+      await vscode.commands.executeCommand('postgres-explorer.aiAssist', cell);
+      return;
+    }
+
+    if (action === 'saveQuery') {
+      await vscode.commands.executeCommand('postgres-explorer.saveQueryToLibraryUI');
+    }
   }
 }
 

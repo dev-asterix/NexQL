@@ -129,6 +129,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'sendMessage':
           await this._handleUserMessage(data.message, data.attachments, data.mentions);
           break;
+        case 'regenerateAssistant':
+          await this._regenerateAssistantReply();
+          break;
+        case 'resendUserMessage': {
+          const idx =
+            typeof data.userIndex === 'number' && Number.isInteger(data.userIndex)
+              ? data.userIndex
+              : -1;
+          await this._resendUserMessageAtIndex(idx);
+          break;
+        }
         case 'clearChat':
           this._messages = [];
           this._sessionService.clearCurrentSession();
@@ -371,10 +382,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (data.notices?.length) {
         attached.push('notices');
       }
+      if (data.message?.trim()) {
+        targetWebview.postMessage({
+          type: 'prefillInput',
+          message: data.message,
+          autoSend: false,
+        });
+      }
       const summary = attached.length ? attached.join(' & ') : 'Content';
-      vscode.window.showInformationMessage(
-        `${summary} attached to SQL Assistant. Add your question and send!`,
-      );
+      const toast =
+        data.message?.trim()
+          ? attached.length > 0
+            ? `${summary} attached to SQL Assistant. Review the prefilled prompt and press Send.`
+            : 'Review the prefilled prompt in SQL Assistant and press Send.'
+          : `${summary} attached to SQL Assistant. Add your question and send!`;
+      vscode.window.showInformationMessage(toast);
 
     } catch (error) {
       console.error('[ChatViewProvider] Failed to create temp files:', error);
@@ -404,23 +426,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   // ==================== Message Handling ====================
 
-  private async _handleUserMessage(message: string, attachments?: FileAttachment[], mentions?: DbMention[]) {
-    if (this._isProcessing) {
-      return;
+  /** Plain prompt text without attachment display suffixes (matches webview copy behavior). */
+  private _plainPromptFromUserMessage(user: ChatMessage): string {
+    if (user.role !== 'user') {
+      return '';
     }
-
-    this._isProcessing = true;
-
-    console.log('[ChatView] ========== HANDLING USER MESSAGE ==========');
-    console.log('[ChatView] Message:', message);
-    console.log('[ChatView] Attachments:', attachments?.length || 0);
-    console.log('[ChatView] Mentions:', mentions?.length || 0);
-    if (mentions && mentions.length > 0) {
-      console.log('[ChatView] Mention details:', JSON.stringify(mentions, null, 2));
+    let c = user.content || '';
+    const idxFile = c.indexOf('\n\n📎');
+    const idxImg = c.indexOf('\n\n🖼️');
+    const candidates = [idxFile, idxImg].filter(i => i >= 0);
+    if (candidates.length > 0) {
+      c = c.slice(0, Math.min(...candidates)).trim();
+    } else {
+      c = c.trim();
     }
+    return c;
+  }
 
-    // Build message with attachments
-    // For display (history), we only show links/names to keep UI clean
+  private async _composeUserTurnPayload(
+    message: string,
+    attachments?: FileAttachment[],
+    mentions?: DbMention[]
+  ): Promise<{ fullMessage: string; aiMessage: string }> {
     let fullMessage = message;
     if (attachments && attachments.length > 0) {
       const attachmentLinks = attachments.map(att => {
@@ -436,7 +463,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       fullMessage = message + attachmentLinks;
     }
 
-    // For AI (current turn), we need the full content
     let aiMessage = message;
     if (attachments && attachments.length > 0) {
       const attachmentContent = attachments.map(att => {
@@ -448,18 +474,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       aiMessage = message + attachmentContent;
     }
 
-    // Process @ mentions - add schema context for AI
-    // aiMessage already has attachments, now add schema context
     if (mentions && mentions.length > 0) {
       console.log('[ChatView] Processing mentions for schema context...');
-      
-      // Phase C: Capture connection context from first mention
+
       if (mentions[0]) {
         this._currentDatabase = mentions[0].database;
-        // Note: connectionName might not be populated in DbMention, so we use connectionId as fallback
         this._currentConnectionName = mentions[0].breadcrumb?.split('.')[0] || mentions[0].connectionId;
 
-        // B1: Look up environment and read-only mode from connection config
         if (mentions[0].connectionId) {
           const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
           const conn = connections.find(c => c.id === mentions[0].connectionId);
@@ -469,7 +490,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
         }
 
-        // Pass safety context to AI service so system prompt is tailored
         this._aiService.setConnectionContext({
           environment: this._currentEnvironment,
           readOnlyMode: this._currentReadOnlyMode,
@@ -478,7 +498,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         this._sendContextUpdate();
       }
-      
+
       let schemaContext = '\n\n=== DATABASE SCHEMA CONTEXT (Use this information to answer the question) ===\n';
 
       for (const mention of mentions) {
@@ -505,14 +525,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const errorMsg = e instanceof Error ? e.message : String(e);
           console.error('[ChatView] Failed to get schema for mention:', mention.name, e);
 
-          // Notify user about the error
           this._getTargetWebview()?.postMessage({
             type: 'schemaError',
             object: `${mention.schema}.${mention.name}`,
             error: errorMsg
           });
 
-          // Still add a note in context so AI knows there was an issue
           schemaContext += `\n### ${mention.type.toUpperCase()}: ${mention.schema}.${mention.name}\n`;
           schemaContext += `[Schema could not be retrieved: ${errorMsg}]\n`;
         }
@@ -520,7 +538,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       schemaContext += '\n=== END DATABASE SCHEMA CONTEXT ===\n\n';
 
-      // Prepend schema context to the message so AI sees it first
       aiMessage = schemaContext + fullMessage;
       console.log('[ChatView] AI message with schema context length:', aiMessage.length);
       console.log('[ChatView] ========== FULL AI MESSAGE ==========');
@@ -528,23 +545,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       console.log('[ChatView] ========== END FULL AI MESSAGE ==========');
     }
 
-    // Add user message to history
-    this._messages.push({ role: 'user', content: fullMessage, attachments, mentions });
-    this._updateChatHistory();
+    return { fullMessage, aiMessage };
+  }
 
-    // Show typing indicator
-    this._setTypingIndicator(true);
-
+  private async _runAiRequest(aiMessage: string): Promise<void> {
     try {
       const config = vscode.workspace.getConfiguration('postgresExplorer');
       const provider = config.get<string>('aiProvider') || 'vscode-lm';
       const modelInfo = await this._aiService.getModelInfo(provider, config);
       console.log('[ChatView] Using AI provider:', provider, 'Model:', modelInfo);
 
-      // Update model info in UI
       this._updateModelInfo();
 
-      // Show model info to user
       vscode.window.setStatusBarMessage(`$(sparkle) AI: ${modelInfo}`, 3000);
 
       this._aiService.setMessages(this._messages);
@@ -573,8 +585,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       console.log('[ChatView] AI response received, length:', responseText.length);
 
-      // Sanitize response - remove any HTML-like patterns that shouldn't be there
-      // This prevents the model from learning bad patterns from previous responses
       responseText = this._sanitizeResponse(responseText);
 
       this._messages.push({ role: 'assistant', content: responseText, usage: usageInfo });
@@ -586,9 +596,112 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         role: 'assistant',
         content: `❌ Error: ${errorMessage}\n\nPlease check your AI provider settings in the extension configuration.`
       });
-    } finally {
-      this._setTypingIndicator(false);
+    }
+  }
+
+  /** Replace the last assistant reply without appending a duplicate user turn. */
+  private async _regenerateAssistantReply(): Promise<void> {
+    if (this._isProcessing) {
+      return;
+    }
+    if (this._messages.length === 0) {
+      return;
+    }
+
+    this._isProcessing = true;
+    try {
+      const last = this._messages[this._messages.length - 1]!;
+      if (last.role === 'assistant') {
+        this._messages.pop();
+      }
+
+      const user = this._messages[this._messages.length - 1];
+      if (!user || user.role !== 'user') {
+        return;
+      }
+
+      const plain = this._plainPromptFromUserMessage(user);
+      const { aiMessage } = await this._composeUserTurnPayload(plain, user.attachments, user.mentions);
+
       this._updateChatHistory();
+
+      this._setTypingIndicator(true);
+      try {
+        await this._runAiRequest(aiMessage);
+      } finally {
+        this._setTypingIndicator(false);
+        this._updateChatHistory();
+      }
+    } finally {
+      this._isProcessing = false;
+    }
+  }
+
+  /** Truncate at `userIndex` and re-run AI for that user message (drops later turns in-place). */
+  private async _resendUserMessageAtIndex(userIndex: number): Promise<void> {
+    if (this._isProcessing) {
+      return;
+    }
+    if (!Number.isFinite(userIndex) || userIndex < 0 || userIndex >= this._messages.length) {
+      return;
+    }
+
+    const turn = this._messages[userIndex];
+    if (!turn || turn.role !== 'user') {
+      return;
+    }
+
+    this._isProcessing = true;
+    try {
+      this._messages = this._messages.slice(0, userIndex);
+      this._messages.push(turn);
+
+      const plain = this._plainPromptFromUserMessage(turn);
+      const { aiMessage } = await this._composeUserTurnPayload(plain, turn.attachments, turn.mentions);
+
+      this._updateChatHistory();
+
+      this._setTypingIndicator(true);
+      try {
+        await this._runAiRequest(aiMessage);
+      } finally {
+        this._setTypingIndicator(false);
+        this._updateChatHistory();
+      }
+    } finally {
+      this._isProcessing = false;
+    }
+  }
+
+  private async _handleUserMessage(message: string, attachments?: FileAttachment[], mentions?: DbMention[]) {
+    if (this._isProcessing) {
+      return;
+    }
+
+    this._isProcessing = true;
+
+    console.log('[ChatView] ========== HANDLING USER MESSAGE ==========');
+    console.log('[ChatView] Message:', message);
+    console.log('[ChatView] Attachments:', attachments?.length || 0);
+    console.log('[ChatView] Mentions:', mentions?.length || 0);
+    if (mentions && mentions.length > 0) {
+      console.log('[ChatView] Mention details:', JSON.stringify(mentions, null, 2));
+    }
+
+    try {
+      const { fullMessage, aiMessage } = await this._composeUserTurnPayload(message, attachments, mentions);
+
+      this._messages.push({ role: 'user', content: fullMessage, attachments, mentions });
+      this._updateChatHistory();
+
+      this._setTypingIndicator(true);
+      try {
+        await this._runAiRequest(aiMessage);
+      } finally {
+        this._setTypingIndicator(false);
+        this._updateChatHistory();
+      }
+    } finally {
       this._isProcessing = false;
     }
   }

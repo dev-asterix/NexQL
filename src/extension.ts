@@ -69,10 +69,12 @@ async function ensureRendererMessageHandlers(
     explainHandlersModule,
     coreHandlersModule,
     queryHandlersModule,
+    cursorBannerModule,
   ] = await Promise.all([
     import('./services/handlers/ExplainHandlers'),
     import('./services/handlers/CoreHandlers'),
     import('./services/handlers/QueryHandlers'),
+    import('./services/handlers/CursorStreamBannerHandler'),
   ]);
 
   // Explain & Chat Handlers
@@ -89,8 +91,12 @@ async function ensureRendererMessageHandlers(
   registry.register('showDatabaseSwitcher', new coreHandlersModule.ShowDatabaseSwitcherHandler(statusBarInstance));
   registry.register('showErrorMessage', new coreHandlersModule.ShowErrorMessageHandler());
   registry.register('export_request', new coreHandlersModule.ExportRequestHandler());
+  registry.register('runDerivedQuery', new coreHandlersModule.RunDerivedQueryHandler());
   registry.register('retryCell', new coreHandlersModule.RetryCellHandler());
   registry.register('showConnectionInfo', new coreHandlersModule.ShowConnectionInfoHandler());
+  registry.register('gridCommitPreference', new coreHandlersModule.GridCommitPreferenceHandler(context));
+  registry.register('cursorStreamBannerDismiss', new cursorBannerModule.CursorStreamBannerDismissHandler(context));
+  registry.register('cursorStreamBannerMute', new cursorBannerModule.CursorStreamBannerMuteHandler(context));
 
   // Query Execution Handlers
   registry.register('execute_update_background', new queryHandlersModule.ExecuteUpdateBackgroundHandler());

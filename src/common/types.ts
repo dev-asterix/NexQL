@@ -90,6 +90,11 @@ export interface BreadcrumbContext {
   };
 }
 
+/** How decoded `bytea` / binary values are shown in query result grids */
+export type ByteaDisplayFormat = 'hex0x' | 'postgresql' | 'json';
+
+export const BYTEA_DISPLAY_DEFAULT: ByteaDisplayFormat = 'hex0x';
+
 /** PostgreSQL notice with client receive time (log-style UI) */
 export interface NoticeLogEntry {
   message: string;
@@ -103,6 +108,8 @@ export interface QueryResults {
   rowCount?: number | null;
   command?: string;
   query?: string;
+  /** Raw query before auto-LIMIT; used by full export reruns. */
+  exportQuery?: string;
   notices?: NoticeLogEntry[];
   executionTime?: number;
   tableInfo?: TableInfo;
@@ -124,6 +131,20 @@ export interface QueryResults {
   autoLimitApplied?: boolean;
   /** Effective LIMIT value when autoLimitApplied is true. */
   autoLimitValue?: number;
+  /** Notebook setting: binary column display mode (embedded for renderer). */
+  byteaDisplayFormat?: ByteaDisplayFormat;
+  /** Server-side cursor session: UI loads pages on scroll; keeps small row buffer client-side. */
+  slidingWindow?: {
+    sessionId: string;
+    windowStartRow: number;
+    windowSize: number;
+    hasMoreBefore: boolean;
+    hasMoreAfter: boolean;
+  };
+  /** When true with slidingWindow, show the streaming hint banner (policy-gated). */
+  showSlidingCursorBanner?: boolean;
+  /** Notebook cell index that produced this output (hover toolbar / focus source cell). */
+  sourceCellIndex?: number;
 }
 
 export interface TableRenderOptions {
@@ -144,6 +165,9 @@ export interface TableRenderOptions {
   onFkLookup?: (req: FkLookupRequest) => void;
   onFilterChange?: (filterState: FilterState) => void;
   onSortChange?: (sortState: SortState) => void;
+  byteaDisplayFormat?: ByteaDisplayFormat;
+  /** 1-based absolute row label for first visible row (sliding-window results). Defaults to 1. */
+  rowNumberBaseline?: number;
 }
 
 export interface ChartRenderOptions {
@@ -296,4 +320,5 @@ export interface ResultHistoryEntry {
   /** PostgreSQL notices (RAISE NOTICE, etc.) for this result */
   notices?: NoticeLogEntry[];
   timestamp: number;
+  byteaDisplayFormat?: ByteaDisplayFormat;
 }

@@ -116,7 +116,7 @@ describe('renderer surface components', () => {
     const analyze = sandbox.spy();
     const optimize = sandbox.spy();
 
-    const actionBar = createActionBar({
+    const actionBarParts = createActionBar({
       onSelectAll: selectAll,
       onCopy: copy,
       onImport: importData,
@@ -126,28 +126,27 @@ describe('renderer surface components', () => {
       onOptimize: optimize,
     });
 
+    const actionBar = actionBarParts.container;
     const buttons = Array.from(actionBar.querySelectorAll('button')) as HTMLButtonElement[];
-    expect(buttons.map(btn => btn.textContent)).to.deep.equal([
-      '☐ Select All',
-      '⎘ Copy',
-      '⬆ Import',
-      '↓ Export',
-      '✦ Send to Chat',
-      '◎ Analyze with AI',
-      '⚡ Optimize',
-    ]);
+    expect(buttons.length).to.equal(5);
+    expect(buttons[0].textContent).to.contain('All');
     buttons[0].click();
     buttons[1].click();
     buttons[2].click();
     buttons[3].click();
+    expect(exportData.firstCall.args[0]).to.equal(buttons[3]);
     buttons[4].click();
-    buttons[5].click();
-    buttons[6].click();
+    for (const label of ['Send to Chat', 'Analyze data', 'Optimize query']) {
+      const item = Array.from(document.querySelectorAll('body div')).find(
+        (d) => d.textContent === label,
+      );
+      expect(item, label).to.exist;
+      (item as HTMLElement).click();
+    }
     expect(selectAll.calledOnce).to.be.true;
     expect(copy.calledOnce).to.be.true;
     expect(importData.calledOnce).to.be.true;
     expect(exportData.calledOnce).to.be.true;
-    expect(exportData.firstCall.args[0]).to.equal(buttons[3]);
     expect(sendToChat.calledOnce).to.be.true;
     expect(analyze.calledOnce).to.be.true;
     expect(optimize.calledOnce).to.be.true;

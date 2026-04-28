@@ -51,7 +51,6 @@ let currentContext = {
   connectionName: null,
   database: null
 };
-let lastUserMessage = null;
 let historySearchDebounceTimer = null;
 
 // Phase B: Quick actions and snippets configuration
@@ -906,6 +905,53 @@ function highlightMentionsInText(text) {
   return html;
 }
 
+/**
+ * Wrap @mentions in markdown-rendered HTML (plain text nodes only; skips pre/code so SQL stays literal).
+ */
+function highlightMentionsInMarkdownHtml(htmlString) {
+  const div = document.createElement('div');
+  div.innerHTML = htmlString || '';
+  const textNodes = [];
+  const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = walker.nextNode())) {
+    textNodes.push(n);
+  }
+  for (const textNode of textNodes) {
+    const parent = textNode.parentElement;
+    if (parent && parent.closest('pre, code')) {
+      continue;
+    }
+    const text = textNode.nodeValue || '';
+    if (!/@([\w]+(?:\.[\w]+)?)/.test(text)) {
+      continue;
+    }
+    const frag = document.createDocumentFragment();
+    let lastIdx = 0;
+    text.replace(/@([\w]+(?:\.[\w]+)?)/g, (full, ident, offset) => {
+      if (offset > lastIdx) {
+        frag.appendChild(document.createTextNode(text.slice(lastIdx, offset)));
+      }
+      const span = document.createElement('span');
+      span.className = 'mention-inline';
+      span.textContent = '@' + ident;
+      frag.appendChild(span);
+      lastIdx = offset + full.length;
+      return '';
+    });
+    if (lastIdx < text.length) {
+      frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+    }
+    textNode.parentNode.replaceChild(frag, textNode);
+  }
+  return div.innerHTML;
+}
+
+/** User bubble body: same markdown pipeline as assistant, plus @mention styling outside code blocks. */
+function renderUserMessageMarkdownBody(text) {
+  return highlightMentionsInMarkdownHtml(parseMarkdown(text));
+}
+
 // Quirky loading messages
 const quirkyMessages = [
   "🧠 Negotiating with the AI overlords…",
@@ -1101,9 +1147,6 @@ function sendMessage() {
   const message = resolvedFollowUp || rawMessage;
   if (!message && attachedFiles.length === 0 && selectedMentions.length === 0) return;
 
-  // Phase B: Track last message for retry functionality
-  lastUserMessage = message;
-
   // Dismiss error card when sending new message
   dismissError();
 
@@ -1134,6 +1177,7 @@ function sendMessage() {
 function sendSuggestion(text) {
   chatInput.value = text;
   resizeChatInput();
+  scrollToInputArea('smooth');
   chatInput.focus();
   chatInput.selectionStart = chatInput.selectionEnd = chatInput.value.length;
 }
@@ -1637,7 +1681,6 @@ function typeText(element, text, callback) {
     if (charIndex < plainText.length) {
       cursor.before(plainText[charIndex]);
       charIndex++;
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
     } else {
       clearInterval(typingAnimation);
       typingAnimation = null;
@@ -1668,7 +1711,7 @@ window.addEventListener('message', event => {
       if (message.isTyping) {
         typingIndicator.classList.add('visible');
         startLoadingMessages();
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        scrollMessagesToEnd('auto');
         // Swap send button with stop button
         sendBtn.style.display = 'none';
         stopBtn.style.display = 'flex';
@@ -1795,7 +1838,169 @@ window.addEventListener('message', event => {
   }
 });
 
-// Toast notification function
+/** Scroll transcript so newest content sits above the composer (ChatGPT-style when sending). */
+function scrollMessagesToEnd(behavior = 'smooth') {
+  if (!messagesContainer) return;
+  requestAnimationFrame(() => {
+    messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior });
+  });
+}
+
+/** Focus composer and ensure it stays in view after send / suggestion chip. */
+function scrollToInputArea(behavior = 'smooth') {
+  scrollMessagesToEnd(behavior);
+  requestAnimationFrame(() => {
+    if (typeof inputWrapper !== 'undefined' && inputWrapper?.scrollIntoView) {
+      try {
+        inputWrapper.scrollIntoView({ block: 'end', behavior });
+      } catch (_) {}
+    }
+    if (chatInput && !chatInput.disabled) {
+      chatInput.focus({ preventScroll: true });
+    }
+  });
+}
+
+/** Anchor the top of the latest assistant reply under the viewport top so readers start at the beginning. */
+function scrollLastAssistantMessageIntoViewStart() {
+  const nodes = messagesContainer.querySelectorAll('.message.assistant');
+  const last = nodes[nodes.length - 1];
+  if (last && last.scrollIntoView) {
+    last.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+}
+
+/** After rendering, scroll based on whose turn ended: assistant → show reply from top; user → composer. */
+function applyChatScrollStrategy(messages, options) {
+  const opts = options || {};
+  if (!messages.length || opts.skip) return;
+  requestAnimationFrame(() => {
+    const last = messages[messages.length - 1];
+    if (!last) return;
+    if (last.role === 'assistant') {
+      scrollLastAssistantMessageIntoViewStart();
+    } else if (last.role === 'user') {
+      scrollToInputArea('smooth');
+    }
+  });
+}
+
+/** Plain copy text for clipboard (markdown source for assistant when available). */
+function getPlainCopyTextForMessage(msg, cleanedAssistantContent) {
+  if (!msg || !msg.role) return '';
+  if (msg.role === 'user') {
+    const c = msg.content || '';
+    return c.split('\n\n📎')[0].split('\n\n🖼️')[0].trim() || c;
+  }
+  return cleanedAssistantContent != null ? cleanedAssistantContent : msg.content || '';
+}
+
+const MSG_ICON_SVG_COPY =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+
+const MSG_ICON_SVG_RETRY =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>';
+
+function mkMsgIconBtn(title, ariaLabel, svgInner, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'msg-action-btn msg-action-btn--icon';
+  b.title = title;
+  b.setAttribute('aria-label', ariaLabel);
+  b.innerHTML = svgInner;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+/** Icon-only Copy + Retry for assistant footer (same row as usage). */
+function buildAssistantIconActions(plainTextForClipboard) {
+  const row = document.createElement('div');
+  row.className = 'msg-actions msg-actions--inline';
+
+  row.appendChild(
+    mkMsgIconBtn('Copy message text', 'Copy message', MSG_ICON_SVG_COPY, async ev => {
+      ev.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(plainTextForClipboard || '');
+        showToast('Copied', 'info');
+      } catch (e) {
+        console.warn('[PgStudio] Copy failed', e);
+      }
+    }),
+  );
+  row.appendChild(
+    mkMsgIconBtn('Replace the assistant reply without duplicating your message', 'Retry response', MSG_ICON_SVG_RETRY, ev => {
+      ev.stopPropagation();
+      vscode.postMessage({ type: 'regenerateAssistant' });
+    }),
+  );
+
+  return row;
+}
+
+/** Same icon styling as assistant; resend truncates later turns in-place (extension). */
+function buildUserIconActions(plainTextForClipboard, userMessageIndex) {
+  const row = document.createElement('div');
+  row.className = 'msg-actions msg-actions--inline';
+
+  row.appendChild(
+    mkMsgIconBtn('Copy message text', 'Copy message', MSG_ICON_SVG_COPY, async ev => {
+      ev.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(plainTextForClipboard || '');
+        showToast('Copied', 'info');
+      } catch (e) {
+        console.warn('[PgStudio] Copy failed', e);
+      }
+    }),
+  );
+  row.appendChild(
+    mkMsgIconBtn(
+      'Resend this message and replace replies after it',
+      'Resend message',
+      MSG_ICON_SVG_RETRY,
+      ev => {
+        ev.stopPropagation();
+        vscode.postMessage({ type: 'resendUserMessage', userIndex: userMessageIndex });
+      },
+    ),
+  );
+
+  return row;
+}
+
+/** Token/time line + icon actions on one row (assistant only). */
+function buildAssistantFooterRow(usageText, plainTextForClipboard) {
+  const wrap = document.createElement('div');
+  wrap.className = 'message-usage-row';
+
+  const usageEl = document.createElement('div');
+  usageEl.className = 'message-usage';
+  usageEl.setAttribute('role', 'status');
+  usageEl.setAttribute('aria-live', 'polite');
+  usageEl.textContent = usageText || '';
+
+  wrap.appendChild(usageEl);
+  wrap.appendChild(buildAssistantIconActions(plainTextForClipboard));
+
+  return wrap;
+}
+
+/** Foot row under user bubbles: icons aligned with assistant (right). */
+function buildUserFooterRow(plainTextForClipboard, userMessageIndex) {
+  const wrap = document.createElement('div');
+  wrap.className = 'message-usage-row message-usage-row--user';
+
+  const spacer = document.createElement('div');
+  spacer.className = 'message-usage message-usage--user-spacer';
+  spacer.setAttribute('aria-hidden', 'true');
+
+  wrap.appendChild(spacer);
+  wrap.appendChild(buildUserIconActions(plainTextForClipboard, userMessageIndex));
+
+  return wrap;
+}
+
 function showToast(text, type = 'info') {
   const toast = document.createElement('div');
   toast.className = 'toast toast-' + type;
@@ -1838,6 +2043,7 @@ function renderMessages(messages, animate = false) {
 
   lastMessageCount = messages.length;
   let activeSuggestionBubbles = [];
+  let skipDefaultEndScroll = false;
 
   // Clear existing messages (but keep typing indicator)
   const messageElements = messagesContainer.querySelectorAll('.message');
@@ -1896,15 +2102,16 @@ function renderMessages(messages, animate = false) {
       // Add the text message after attachments if exists
       const textWithoutAttachments = msg.content.split('\n\n📎')[0].split('\n\n🖼️')[0].trim();
       if (textWithoutAttachments && textWithoutAttachments !== 'Please analyze the attached file(s)') {
-        const textP = document.createElement('p');
-        textP.innerHTML = highlightMentionsInText(textWithoutAttachments);
-        contentDiv.appendChild(textP);
+        const textWrap = document.createElement('div');
+        textWrap.className = 'message-user-text';
+        textWrap.innerHTML = renderUserMessageMarkdownBody(textWithoutAttachments);
+        contentDiv.appendChild(textWrap);
       }
     } else if (msg.role === 'user') {
-      // User message without attachments - highlight any @mentions
+      // User message without attachments — markdown + @mentions (same typography as assistant)
       const text = msg.content.split('\n\n📎')[0].trim();
       if (text && text !== 'Please analyze the referenced database objects' && text !== 'Please analyze the attached file(s)') {
-        contentDiv.innerHTML = highlightMentionsInText(text);
+        contentDiv.innerHTML = renderUserMessageMarkdownBody(text);
       } else {
         contentDiv.textContent = msg.content;
       }
@@ -1916,22 +2123,19 @@ function renderMessages(messages, animate = false) {
       const bubbles = extracted.bubbles;
 
       if (isNewAssistantMessage && isLastMessage) {
-        // Will be typed out
+        // Will be typed out — anchor assistant turn at top so the reply is read from the start
         bubbleDiv.appendChild(contentDiv);
         messageDiv.appendChild(roleDiv);
         messageDiv.appendChild(bubbleDiv);
+        messageDiv.appendChild(buildAssistantFooterRow(msg.usage || '', cleanContent));
         messagesContainer.insertBefore(messageDiv, typingIndicator);
+        messageDiv.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        skipDefaultEndScroll = true;
         typeText(contentDiv, cleanContent, () => {
-          if (msg.usage) {
-            const usageDiv = document.createElement('div');
-            usageDiv.className = 'message-usage';
-            usageDiv.setAttribute('role', 'status');
-            usageDiv.setAttribute('aria-live', 'polite');
-            usageDiv.textContent = msg.usage;
-            messageDiv.appendChild(usageDiv);
-            messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
+          const usageEl = messageDiv.querySelector('.message-usage-row .message-usage');
+          if (usageEl) {
+            usageEl.textContent = msg.usage || '';
           }
-          // Show bubbles after typing finishes
           if (bubbles.length > 0) {
             showSuggestionBubbles(bubbles);
           } else {
@@ -1953,23 +2157,27 @@ function renderMessages(messages, animate = false) {
     messageDiv.appendChild(roleDiv);
     messageDiv.appendChild(bubbleDiv);
 
-    // Append usage info if available
-    if (msg.usage) {
-      const usageDiv = document.createElement('div');
-      usageDiv.className = 'message-usage';
-      usageDiv.setAttribute('role', 'status');
-      usageDiv.setAttribute('aria-live', 'polite');
-      usageDiv.textContent = msg.usage;
-      messageDiv.appendChild(usageDiv);
+    let copyPlain = '';
+    if (msg.role === 'user') {
+      copyPlain = getPlainCopyTextForMessage(msg);
+    } else if (msg.role === 'assistant') {
+      copyPlain = safeJsonTailExtract(msg.content).content;
+    } else {
+      copyPlain = msg.content || '';
+    }
+    if (msg.role === 'user') {
+      messageDiv.appendChild(buildUserFooterRow(copyPlain, idx));
+    }
+    if (msg.role === 'assistant') {
+      messageDiv.appendChild(buildAssistantFooterRow(msg.usage || '', copyPlain));
     }
 
     messagesContainer.insertBefore(messageDiv, typingIndicator);
   });
 
-  messagesContainer.scrollTo({
-    top: messagesContainer.scrollHeight,
-    behavior: 'smooth'
-  });
+  if (!skipDefaultEndScroll) {
+    applyChatScrollStrategy(messages);
+  }
 
   if (activeSuggestionBubbles.length > 0) {
     showSuggestionBubbles(activeSuggestionBubbles);
@@ -2053,14 +2261,14 @@ function showSuggestionBubbles(bubbles) {
     pill.title = text;
     pill.onclick = () => {
       chatInput.value = text;
-      chatInput.focus();
       dismissBubbleStrip();
+      scrollToInputArea('smooth');
+      chatInput.focus();
     };
     pillRow.appendChild(pill);
   });
 
   lastAssistant.appendChild(pillRow);
-  messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
 }
 
 /**
@@ -2166,19 +2374,9 @@ function dismissError() {
   }
 }
 
-/**
- * Retry the last user message
- */
 function retryLastMessage() {
-  if (!lastUserMessage) {
-    console.warn('[PgStudio] No previous message to retry');
-    return;
-  }
-  
   dismissError();
-  chatInput.value = lastUserMessage;
-  chatInput.focus();
-  sendMessage();
+  vscode.postMessage({ type: 'regenerateAssistant' });
 }
 
 /**

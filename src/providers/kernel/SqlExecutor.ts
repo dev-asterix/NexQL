@@ -3,7 +3,13 @@ import * as vscode from 'vscode';
 import { NotebookCellOutput, NotebookCellOutputItem } from 'vscode';
 import { ConnectionManager } from '../../services/ConnectionManager';
 import { TelemetryService, SpanNames } from '../../services/TelemetryService';
-import { NoticeLogEntry, PostgresMetadata, QueryResults } from '../../common/types';
+import {
+  NoticeLogEntry,
+  PostgresMetadata,
+  QueryResults,
+  BYTEA_DISPLAY_DEFAULT,
+  ByteaDisplayFormat,
+} from '../../common/types';
 import { getPgDataTypeName } from '../../common/pgDataTypeNames';
 import { SqlParser } from './SqlParser';
 import { SecretStorageService } from '../../services/SecretStorageService';
@@ -15,6 +21,8 @@ import { QueryPerformanceService } from '../../services/QueryPerformanceService'
 import { extensionContext } from '../../extension';
 import { QueryCodeLensProvider } from '../QueryCodeLensProvider';
 import { updateNotebookTitle } from '../../utils/notebookTitle';
+import { ResultCursorService } from '../../services/ResultCursorService';
+import { CursorStreamBannerPolicy } from '../../services/CursorStreamBannerPolicy';
 
 /** Streaming NOTICE feed during a single-statement cell run (replaced by final result output). */
 const MIME_NOTICES_LIVE = 'application/vnd.postgres-notebook.notices-live';
@@ -251,6 +259,28 @@ export class SqlExecutor {
     return limitedQuery;
   }
 
+  /**
+   * Optional execution directives embedded as SQL comments at top-level.
+   * - pgstudio:full-dataset => disable streaming + disable auto-limit for this statement.
+   * - pgstudio:no-stream    => disable streaming + disable auto-limit for this statement.
+   */
+  private consumeExecutionDirectives(query: string): {
+    query: string;
+    disableStreaming: boolean;
+    disableAutoLimit: boolean;
+  } {
+    const hasFullDataset = /\bpgstudio:(?:full-dataset|no-stream)\b/i.test(query);
+    const stripped = query
+      .replace(/^\s*--\s*pgstudio:(?:full-dataset|no-stream)\s*$/gim, '')
+      .replace(/\/\*\s*pgstudio:(?:full-dataset|no-stream)\s*\*\//gim, '')
+      .trim();
+    return {
+      query: stripped,
+      disableStreaming: hasFullDataset,
+      disableAutoLimit: hasFullDataset,
+    };
+  }
+
   public async executeCell(cell: vscode.NotebookCell) {
     console.log(`SqlExecutor: Starting cell execution. Controller ID: ${this._controller.id}`);
     const execution = this._controller.createNotebookCellExecution(cell);
@@ -391,6 +421,7 @@ export class SqlExecutor {
 
       // Execute each statement
       for (let stmtIndex = 0; stmtIndex < statements.length; stmtIndex++) {
+        ResultCursorService.closeSessionsForCellUri(cell.document.uri.toString());
         liveNoticesActive = false;
         let query = statements[stmtIndex];
         const stmtStartTime = Date.now();
@@ -440,12 +471,48 @@ export class SqlExecutor {
           pgParamValues = vals;
         }
 
-        // Apply auto-LIMIT if applicable (pass notebook metadata and profile context for settings)
-        const originalQuery = query;
-        query = this.applyAutoLimit(query, connection, metadata, activeProfileContext);
-        const autoLimitApplied = query !== originalQuery;
+        const directives = this.consumeExecutionDirectives(query);
+        query = directives.query;
+        if (!query.trim()) {
+          continue;
+        }
 
-        console.log(`SqlExecutor: Executing statement ${stmtIndex + 1}/${statements.length}:`, query.substring(0, 100));
+        const originalQuery = query;
+        let queryForExecution = query;
+        let autoLimitApplied = false;
+        let usedSlidingWindow = false;
+        let slidingPayload: QueryResults['slidingWindow'];
+        let openedSession: Awaited<ReturnType<typeof ResultCursorService.tryOpenSession>> = null;
+
+        const windowSize = ResultCursorService.getWindowSizeCap();
+        const trySliding =
+          !directives.disableStreaming &&
+          ResultCursorService.isGloballyEnabled() &&
+          pgParamValues === undefined &&
+          ResultCursorService.isEligibleQuery(query);
+
+        if (trySliding) {
+          const txInfo = getTransactionManager().getTransactionInfo(cell.notebook.uri.toString());
+          openedSession = await ResultCursorService.tryOpenSession({
+            client,
+            notebookUri: cell.notebook.uri.toString(),
+            cellUri: cell.document.uri.toString(),
+            sql: query,
+            inTransaction: !!txInfo?.isActive,
+            windowSize,
+          });
+          if (openedSession) {
+            usedSlidingWindow = true;
+            slidingPayload = openedSession.payload;
+          }
+        }
+
+        if (!usedSlidingWindow && !directives.disableAutoLimit) {
+          queryForExecution = this.applyAutoLimit(query, connection, metadata, activeProfileContext);
+          autoLimitApplied = queryForExecution !== originalQuery;
+        }
+
+        console.log(`SqlExecutor: Executing statement ${stmtIndex + 1}/${statements.length}:`, queryForExecution.substring(0, 100));
 
         let result;
         try {
@@ -455,9 +522,19 @@ export class SqlExecutor {
             statementCount: statements.length
           });
 
-          result =
-            pgParamValues !== undefined ? await client.query(query, pgParamValues) : await client.query(query);
-
+          if (usedSlidingWindow && openedSession) {
+            result = {
+              rows: openedSession.rows,
+              fields: openedSession.fields as any,
+              rowCount: null,
+              command: 'SELECT',
+            };
+          } else {
+            result =
+              pgParamValues !== undefined
+                ? await client.query(queryForExecution, pgParamValues)
+                : await client.query(queryForExecution);
+          }
 
           const stmtEndTime = Date.now();
           const executionTime = (stmtEndTime - stmtStartTime) / 1000;
@@ -471,7 +548,7 @@ export class SqlExecutor {
 
           // Performance Tracking
           const queryAnalyzer = QueryAnalyzer.getInstance();
-          const queryHash = queryAnalyzer.getQueryHash(query);
+          const queryHash = queryAnalyzer.getQueryHash(queryForExecution);
           const performanceService = QueryPerformanceService.getInstance();
 
           // Record this execution
@@ -526,10 +603,10 @@ export class SqlExecutor {
           console.log('[Performance] Analysis:', JSON.stringify(performanceAnalysis));
 
           // Build output data
-          const tableInfo = await this.getTableInfo(client, result, query);
+          const tableInfo = await this.getTableInfo(client, result, queryForExecution);
           let autoLimitValue: number | undefined;
           if (autoLimitApplied) {
-            const lim = query.match(/\bLIMIT\s+(\d+)/i);
+            const lim = queryForExecution.match(/\bLIMIT\s+(\d+)/i);
             autoLimitValue = lim ? parseInt(lim[1], 10) : undefined;
           }
 
@@ -550,6 +627,26 @@ export class SqlExecutor {
             }
           }
 
+          const rawByteaFmt = vscode.workspace
+            .getConfiguration('postgresExplorer')
+            .get<string>('query.byteaDisplayFormat');
+          const byteaDisplayFormat: ByteaDisplayFormat =
+            rawByteaFmt === 'hex0x' || rawByteaFmt === 'postgresql' || rawByteaFmt === 'json'
+              ? rawByteaFmt
+              : BYTEA_DISPLAY_DEFAULT;
+
+          let showSlidingCursorBanner = false;
+          if (slidingPayload && extensionContext) {
+            const slidingCount = CursorStreamBannerPolicy.incrementSlidingExecCount(
+              extensionContext.workspaceState,
+            );
+            showSlidingCursorBanner = CursorStreamBannerPolicy.shouldShowBanner(
+              extensionContext.globalState,
+              extensionContext.workspaceState,
+              slidingCount,
+            );
+          }
+
           const outputData: QueryResults = {
             success,
             rowCount: result.rowCount,
@@ -557,7 +654,9 @@ export class SqlExecutor {
             columns,
             columnTypes,
             command: result.command,
-            query: query,
+            query: queryForExecution,
+            exportQuery: originalQuery,
+            byteaDisplayFormat,
             notices: [...notices], // Copy current notices
             executionTime,
             backendPid,
@@ -567,16 +666,23 @@ export class SqlExecutor {
             slowQuery: isSlow,
             autoLimitApplied,
             autoLimitValue,
+            ...(slidingPayload
+              ? {
+                  slidingWindow: slidingPayload,
+                  ...(showSlidingCursorBanner ? { showSlidingCursorBanner: true } : {}),
+                }
+              : {}),
             breadcrumb: {
               connectionId: connection.id,
               connectionName: connection.name || connection.host,
               database: metadata.databaseName || connection.database,
               schema: tableInfo?.schema,
               object: tableInfo?.table ? { name: tableInfo.table, type: 'table' } : undefined
-            }
+            },
+            sourceCellIndex: cell.index,
           };
 
-          telemetry.endSpan(spanId, { success: 'true', rowCount: result.rowCount ?? 0 });
+          telemetry.endSpan(spanId, { success: 'true', rowCount: result.rowCount ?? rows.length });
 
           // Clear notices for next statement
           notices.length = 0;
@@ -597,17 +703,17 @@ export class SqlExecutor {
           QueryCodeLensProvider.getInstance()?.updatePill(cell.document.uri.toString(), {
             success: true,
             elapsedSeconds: executionTime,
-            rowCount: result.rowCount ?? 0
+            rowCount: result.rowCount ?? rows.length
           });
 
           // Log to history
           QueryHistoryService.getInstance().add({
-            query: query,
+            query: queryForExecution,
             success: true,
             duration: executionTime,
             durationMs,
             slow: isSlow,
-            rowCount: result.rowCount || 0,
+            rowCount: result.rowCount ?? rows.length,
             connectionName: connection.name
           });
 
@@ -641,7 +747,8 @@ export class SqlExecutor {
             slowQuery: isSlow,
             canExplain: true,
             errorCode: pgErrorCode,
-            errorExplanation: pgErrorCode ? getErrorExplanation(pgErrorCode) : undefined
+            errorExplanation: pgErrorCode ? getErrorExplanation(pgErrorCode) : undefined,
+            sourceCellIndex: cell.index,
           };
 
           const errorOutput = new NotebookCellOutput([

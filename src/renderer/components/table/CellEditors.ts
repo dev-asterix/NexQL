@@ -17,74 +17,57 @@ export interface CellEditorOptions {
   modalMount?: HTMLElement;
   /** The table cell element — used to locate the output container for inline editor injection. */
   anchorEl?: HTMLElement;
+  /** Mount bottom-docked panels after this node (e.g. table scroll area). */
+  dockParent?: HTMLElement;
+  dockAfter?: HTMLElement;
+  /** Highlight this row while a bottom-docked editor is open. */
+  editingRowEl?: HTMLTableRowElement | null;
 }
 
-export type EditorType = 'text' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'json' | 'array' | 'fk' | 'longtext';
+export type EditorType =
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'time'
+  | 'datetime'
+  | 'json'
+  | 'array'
+  | 'fk'
+  | 'longtext';
 
-/**
- * Types where a one-line input is a poor fit; use the same anchored modal as long-text / JSON (without JSON validation).
- * Names are lowercase PostgreSQL typnames / common aliases (see pg_catalog / pg-types builtins).
- */
-const PG_TYPES_WITH_MODAL_TEXT_EDITOR = new Set([
-  'text',
-  'varchar',
-  'character varying',
-  'bpchar',
-  'char',
-  'character',
-  'name',
-  'xml',
-  'interval',
-  'point',
-  'line',
-  'lseg',
-  'box',
-  'path',
-  'polygon',
-  'circle',
-  'bit',
-  'varbit',
-  'bit varying',
-  'tsvector',
-  'tsquery',
-  'inet',
-  'cidr',
-  'macaddr',
-  'macaddr8',
-  'geometry',
-  'geography',
-  'bytea',
-  'uuid',
-  'money',
-  'int4range',
-  'int8range',
-  'numrange',
-  'daterange',
-  'tsrange',
-  'tstzrange',
-  'int4multirange',
-  'int8multirange',
-  'nummultirange',
-  'datemultirange',
-  'tsmultirange',
-  'tstzmultirange',
-]);
-
-function pgTypeUsesModalTextEditor(columnType: string): boolean {
+/** First token of a pg typname, before `(…)`, for matching `numeric(12,4)` etc. */
+function pgTypeHead(columnType: string): string {
   const t = columnType.trim().toLowerCase();
-  if (!t) {
-    return false;
+  if (t.startsWith('double precision')) {
+    return 'double precision';
   }
-  if (t.startsWith('oid:')) {
+  const paren = t.indexOf('(');
+  const base = (paren >= 0 ? t.slice(0, paren) : t).trim();
+  return base.split(/\s+/)[0] ?? base;
+}
+
+function isPgNumericFamily(columnType: string): boolean {
+  const t = columnType.trim().toLowerCase();
+  if (t.startsWith('double precision')) {
     return true;
   }
-  if (PG_TYPES_WITH_MODAL_TEXT_EDITOR.has(t)) {
-    return true;
-  }
-  if (/^(varchar|bpchar|char|bit|varbit|numeric|decimal)\s*\(/.test(t)) {
-    return true;
-  }
-  return false;
+  const head = pgTypeHead(columnType);
+  return [
+    'int2',
+    'int4',
+    'int8',
+    'float4',
+    'float8',
+    'numeric',
+    'decimal',
+    'smallint',
+    'integer',
+    'bigint',
+    'real',
+    'serial',
+    'bigserial',
+    'smallserial',
+  ].includes(head);
 }
 
 /** String for inline inputs — never use String(object) (yields "[object Object]"). */
@@ -133,37 +116,44 @@ export function getEditorType(columnType: string, currentValue: any): EditorType
   if (type.startsWith('_') || type === 'array') { return 'array'; }
 
   // Boolean
-  if (type === 'bool' || type === 'boolean') { return 'boolean'; }
+  if (type === 'bool' || type === 'boolean') {
+    return 'boolean';
+  }
 
-  // Numeric (money uses modal text — locale/formatting is easier in the expanded editor)
-  if (['int2', 'int4', 'int8', 'float4', 'float8', 'numeric', 'decimal',
-       'smallint', 'integer', 'bigint', 'real', 'double precision'].includes(type)) {
+  // Numeric scalars — single-line editor, row height unchanged
+  if (isPgNumericFamily(columnType)) {
     return 'number';
   }
 
-  // Date/time
-  if (type === 'date') { return 'date'; }
-  if (type === 'time' || type === 'timetz' ||
-      type === 'time without time zone' || type === 'time with time zone') {
+  // Date/time — native inputs, compact row
+  if (type === 'date') {
+    return 'date';
+  }
+  if (
+    type === 'time' ||
+    type === 'timetz' ||
+    type === 'time without time zone' ||
+    type === 'time with time zone'
+  ) {
     return 'time';
   }
-  if (type === 'timestamp' || type === 'timestamptz' ||
-      type === 'timestamp without time zone' || type === 'timestamp with time zone') {
+  if (
+    type === 'timestamp' ||
+    type === 'timestamptz' ||
+    type === 'timestamp without time zone' ||
+    type === 'timestamp with time zone'
+  ) {
     return 'datetime';
   }
 
   // JSON
-  if (type === 'json' || type === 'jsonb') { return 'json'; }
-
-  // XML, interval, geometry, full-width text types, etc. — anchored modal (same UX as long text)
-  if (pgTypeUsesModalTextEditor(type)) {
-    return 'longtext';
+  if (type === 'json' || type === 'jsonb') {
+    return 'json';
   }
 
-  // Long text detection (unknown OID label or legacy "string" + very long value)
-  if (typeof currentValue === 'string' && currentValue.length > 200) { return 'longtext'; }
-
-  return 'text';
+  // varchar, text, bytea, uuid, strings, enums, OID labels, ranges, geometry, …
+  // → bottom-docked editor so notebook iframe rows are not stretched
+  return 'longtext';
 }
 
 /**
@@ -188,7 +178,7 @@ export function createCellEditor(options: CellEditorOptions): HTMLElement {
     case 'json':     return createJsonEditor(options);
     case 'array':    return createArrayEditor(options);
     case 'longtext': return createLongTextEditor(options);
-    default:         return createTextEditor(options);
+    default:         return createLongTextEditor(options);
   }
 }
 
@@ -267,25 +257,7 @@ function createNumberEditor(opts: CellEditorOptions): HTMLElement {
   return input;
 }
 
-// ─── Text ────────────────────────────────────────────────────────────
-
-function createTextEditor(opts: CellEditorOptions): HTMLElement {
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.value =
-    opts.currentValue !== null && opts.currentValue !== undefined
-      ? cellValueToEditString(opts.currentValue)
-      : '';
-  applyEditorBaseStyle(input);
-
-  const save = () => opts.onSave(input.value === '' && opts.isNullable ? null : input.value);
-  input.addEventListener('keydown', (e) => handleKeydown(e, save, opts.onCancel));
-  input.addEventListener('blur', save);
-  setTimeout(() => { input.focus(); input.select(); }, 0);
-  return input;
-}
-
-// ─── Long Text (modal overlay) ───────────────────────────────────────
+// ─── Long Text (bottom-docked panel) ─────────────────────────────────
 
 function modalPlainEditorTitle(opts: CellEditorOptions): string {
   const t = (opts.columnType || '').trim();
@@ -305,6 +277,10 @@ function createLongTextEditor(opts: CellEditorOptions): HTMLElement {
     onCancel: opts.onCancel,
     modalMount: opts.modalMount,
     anchorEl: opts.anchorEl,
+    dockParent: opts.dockParent,
+    dockAfter: opts.dockAfter,
+    editingRowEl: opts.editingRowEl,
+    columnName: opts.columnName,
   });
 }
 
@@ -426,6 +402,10 @@ function createJsonEditor(opts: CellEditorOptions): HTMLElement {
     onCancel: opts.onCancel,
     modalMount: opts.modalMount,
     anchorEl: opts.anchorEl,
+    dockParent: opts.dockParent,
+    dockAfter: opts.dockAfter,
+    editingRowEl: opts.editingRowEl,
+    columnName: opts.columnName,
   });
 }
 
@@ -461,13 +441,11 @@ function createArrayEditor(opts: CellEditorOptions): HTMLElement {
   const wrapper = document.createElement('div');
   wrapper.style.cssText = `
     background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-focusBorder);
+    border: 1px solid var(--vscode-widget-border);
     border-radius: 3px;
     padding: 8px;
-    min-width: 200px;
-    max-width: 400px;
-    position: relative;
-    z-index: 1000;
+    width: 100%;
+    box-sizing: border-box;
   `;
 
   const items = parseArrayLiteral(opts.currentValue);
@@ -477,7 +455,8 @@ function createArrayEditor(opts: CellEditorOptions): HTMLElement {
   header.innerHTML = `<span style="font-size:11px;color:var(--vscode-descriptionForeground);">Array items (${opts.columnType})</span>`;
 
   const itemsContainer = document.createElement('div');
-  itemsContainer.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;';
+  itemsContainer.style.cssText =
+    'display:flex;flex-direction:column;gap:4px;max-height:280px;overflow-y:auto;';
 
   const renderItems = () => {
     itemsContainer.innerHTML = '';
@@ -497,7 +476,12 @@ function createArrayEditor(opts: CellEditorOptions): HTMLElement {
       input.addEventListener('input', () => { items[idx] = input.value; });
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { items.splice(idx + 1, 0, ''); renderItems(); }
-        if (e.key === 'Escape') { opts.onCancel(); }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          applyDockedAnchorCellStyle(opts.anchorEl, false);
+          applyEditingRowHighlight(opts.editingRowEl ?? null, false);
+          opts.onCancel();
+        }
       });
 
       const removeBtn = document.createElement('button');
@@ -538,7 +522,11 @@ function createArrayEditor(opts: CellEditorOptions): HTMLElement {
     background:var(--vscode-button-background);color:var(--vscode-button-foreground);
     border:none;border-radius:2px;padding:2px 10px;cursor:pointer;font-size:11px;
   `;
-  saveBtn.addEventListener('click', () => opts.onSave(toArrayLiteral(items)));
+  saveBtn.addEventListener('click', () => {
+    applyDockedAnchorCellStyle(opts.anchorEl, false);
+    applyEditingRowHighlight(opts.editingRowEl ?? null, false);
+    opts.onSave(toArrayLiteral(items));
+  });
 
   const cancelBtn = document.createElement('button');
   cancelBtn.textContent = 'Cancel';
@@ -547,7 +535,11 @@ function createArrayEditor(opts: CellEditorOptions): HTMLElement {
     color:var(--vscode-descriptionForeground);border-radius:2px;
     padding:2px 8px;cursor:pointer;font-size:11px;
   `;
-  cancelBtn.addEventListener('click', opts.onCancel);
+  cancelBtn.addEventListener('click', () => {
+    applyDockedAnchorCellStyle(opts.anchorEl, false);
+    applyEditingRowHighlight(opts.editingRowEl ?? null, false);
+    opts.onCancel();
+  });
 
   btnGroup.appendChild(saveBtn);
   btnGroup.appendChild(cancelBtn);
@@ -557,7 +549,53 @@ function createArrayEditor(opts: CellEditorOptions): HTMLElement {
   wrapper.appendChild(header);
   wrapper.appendChild(itemsContainer);
   wrapper.appendChild(footer);
-  return wrapper;
+
+  const outer = document.createElement('div');
+  outer.setAttribute('data-inline-editor', 'true');
+  outer.style.cssText = `
+    position:relative;
+    width:100%;
+    flex-shrink:0;
+    box-sizing:border-box;
+    padding:12px;
+    margin:6px 0 0;
+    background:var(--vscode-editor-background);
+    border:2px solid var(--vscode-focusBorder);
+    border-radius:4px;
+    box-shadow:0 2px 12px rgba(0,0,0,0.28);
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  `;
+
+  const titleBar = document.createElement('div');
+  titleBar.style.cssText =
+    'font-size:13px;font-weight:600;color:var(--vscode-editor-foreground);flex-shrink:0;';
+  titleBar.textContent = `${opts.columnName} (${opts.columnType})`;
+
+  outer.appendChild(titleBar);
+  outer.appendChild(wrapper);
+
+  applyEditingRowHighlight(opts.editingRowEl ?? null, true);
+  applyDockedAnchorCellStyle(opts.anchorEl, true);
+  insertDockedPanel(
+    {
+      title: `${opts.columnName} array`,
+      initialContent: '',
+      isCode: false,
+      validate: () => null,
+      onSave: () => {},
+      onCancel: () => {},
+      anchorEl: opts.anchorEl,
+      dockParent: opts.dockParent,
+      dockAfter: opts.dockAfter,
+      editingRowEl: opts.editingRowEl ?? null,
+    },
+    outer,
+  );
+  outer.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+  return createDockedCellIndicator(opts.columnName, `${opts.columnName} (${opts.columnType})`);
 }
 
 // ─── FK Dropdown ──────────────────────────────────────────────────────
@@ -654,12 +692,84 @@ function createFkEditor(opts: CellEditorOptions): HTMLElement {
   return wrapper;
 }
 
-// ─── Inline Expanding Editor (replaces clipped fixed-position modal) ──
+// ─── Bottom-docked multi-line editors (notebook output = sandboxed iframe) ──
 //
-// Notebook output runs inside an iframe whose ancestors apply overflow:hidden.
-// No fixed/absolute overlay can escape this clipping.  Instead we inject an
-// inline panel into the output's own DOM flow — it pushes the table down,
-// stays fully visible, and scrolls into view automatically.
+// `position:fixed` and high z-index cannot overlap adjacent notebook cells.
+// Editors are injected in-flow below the table scroll area (sandboxed iframe).
+
+/** Matches footer Commit accent — marks the grid cell tied to the bottom docked editor */
+const PG_EDIT_AMBER = '#f59e0b';
+
+function applyDockedAnchorCellStyle(anchorEl: HTMLElement | undefined, active: boolean) {
+  const td = anchorEl;
+  if (!td || td.tagName.toLowerCase() !== 'td') {
+    return;
+  }
+  if (active) {
+    td.style.boxSizing = 'border-box';
+    td.style.border = `1.5px solid ${PG_EDIT_AMBER}`;
+    td.style.background = `color-mix(in srgb, ${PG_EDIT_AMBER} 14%, transparent)`;
+    td.style.color = PG_EDIT_AMBER;
+    td.style.verticalAlign = 'middle';
+  } else {
+    td.style.border = '';
+    td.style.background = '';
+    td.style.color = '';
+    td.style.verticalAlign = '';
+    td.style.boxSizing = '';
+  }
+}
+
+function createDockedCellIndicator(columnLabel: string, title: string): HTMLElement {
+  const el = document.createElement('div');
+  el.style.cssText = `
+    padding:6px 8px;
+    font-size:11px;
+    font-weight:600;
+    color:${PG_EDIT_AMBER};
+    border:1.5px solid ${PG_EDIT_AMBER};
+    border-radius:4px;
+    background:color-mix(in srgb, ${PG_EDIT_AMBER} 14%, transparent);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:100%;
+    box-sizing:border-box;
+  `;
+  el.textContent = `✎ ${columnLabel}`;
+  el.title = title;
+  el.setAttribute('aria-label', `Editing ${columnLabel}`);
+  return el;
+}
+
+function applyEditingRowHighlight(row: HTMLElement | null | undefined, active: boolean) {
+  if (!row) {
+    return;
+  }
+  if (active) {
+    row.classList.add('pg-row-editing');
+    row.style.background =
+      'color-mix(in srgb, var(--vscode-list-inactiveSelectionBackground) 38%, transparent)';
+    row.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  } else {
+    row.classList.remove('pg-row-editing');
+    row.style.background = '';
+  }
+}
+
+function insertDockedPanel(opts: ModalEditorOptions, panel: HTMLElement): HTMLElement {
+  if (opts.dockParent) {
+    if (opts.dockAfter?.parentNode === opts.dockParent) {
+      opts.dockParent.insertBefore(panel, opts.dockAfter.nextSibling);
+    } else {
+      opts.dockParent.appendChild(panel);
+    }
+    return opts.dockParent;
+  }
+  const container = opts.anchorEl ? findOutputContainer(opts.anchorEl) : document.body;
+  container.appendChild(panel);
+  return container;
+}
 
 interface ModalEditorOptions {
   title: string;
@@ -672,6 +782,11 @@ interface ModalEditorOptions {
   modalMount?: HTMLElement;
   /** The cell <td> — used to find the output container and scroll into view. */
   anchorEl?: HTMLElement;
+  dockParent?: HTMLElement;
+  dockAfter?: HTMLElement;
+  editingRowEl?: HTMLTableRowElement | null;
+  /** Shown in the table cell while the docked panel is open. */
+  columnName?: string;
 }
 
 /**
@@ -693,42 +808,30 @@ function findOutputContainer(start: HTMLElement): HTMLElement {
 }
 
 function createModalEditor(opts: ModalEditorOptions): HTMLElement {
-  // The inline placeholder returned to the caller (sits inside the <td>)
-  const placeholder = document.createElement('div');
-  placeholder.style.cssText = `
-    padding:2px 6px;
-    background:var(--vscode-input-background);
-    border:1px solid var(--vscode-focusBorder);
-    border-radius:2px;
-    font-size:11px;
-    color:var(--vscode-descriptionForeground);
-    cursor:pointer;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    max-width:200px;
-  `;
-  const preview = opts.initialContent.slice(0, 60) + (opts.initialContent.length > 60 ? '...' : '');
-  placeholder.textContent = preview || '(empty)';
-  placeholder.title = 'Click to open editor';
+  const columnLabel =
+    opts.columnName?.trim() ||
+    opts.title.replace(/\s*\([^)]*\)\s*$/, '').trim() ||
+    opts.title;
+
+  const placeholder = createDockedCellIndicator(columnLabel, opts.title);
 
   const showEditor = () => {
-    const container = opts.anchorEl ? findOutputContainer(opts.anchorEl) : document.body;
+    applyEditingRowHighlight(opts.editingRowEl ?? null, true);
+    applyDockedAnchorCellStyle(opts.anchorEl, true);
 
-    // ── Wrapper: inline block in normal DOM flow ──
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-inline-editor', 'true');
     wrapper.style.cssText = `
       position:relative;
-      z-index:100;
       width:100%;
+      flex-shrink:0;
       box-sizing:border-box;
       padding:12px;
-      margin:0;
+      margin:6px 0 0;
       background:var(--vscode-editor-background);
       border:2px solid var(--vscode-focusBorder);
       border-radius:4px;
-      box-shadow:0 4px 16px rgba(0,0,0,0.35);
+      box-shadow:0 2px 12px rgba(0,0,0,0.28);
       display:flex;
       flex-direction:column;
       gap:8px;
@@ -818,6 +921,8 @@ function createModalEditor(opts: ModalEditorOptions): HTMLElement {
 
     const teardown = () => {
       keyboardTrapAbort.abort();
+      applyDockedAnchorCellStyle(opts.anchorEl, false);
+      applyEditingRowHighlight(opts.editingRowEl ?? null, false);
       if (wrapper.parentNode) {
         wrapper.parentNode.removeChild(wrapper);
       }
@@ -839,7 +944,7 @@ function createModalEditor(opts: ModalEditorOptions): HTMLElement {
     wrapper.addEventListener(
       'keydown',
       (e: KeyboardEvent) => {
-        if (e.key === 'Enter' && e.ctrlKey) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
           e.preventDefault(); e.stopPropagation(); doSave(); return;
         }
         if (e.key === 'Escape') {
@@ -862,9 +967,7 @@ function createModalEditor(opts: ModalEditorOptions): HTMLElement {
     wrapper.appendChild(errorDiv);
     wrapper.appendChild(btnRow);
 
-    // Insert at the top of the output container (above the table) so the
-    // editor is always visible and never hidden beneath scrolled-away rows.
-    container.insertBefore(wrapper, container.firstChild);
+    insertDockedPanel(opts, wrapper);
     wrapper.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     setTimeout(() => { textarea.focus(); textarea.setSelectionRange(0, 0); }, 0);
   };

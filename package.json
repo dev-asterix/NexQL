@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PgStudio (PostgreSQL Explorer)",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "PostgreSQL database explorer for VS Code with notebook support [Nightly]",
   "publisher": "ric-v",
   "private": false,
@@ -1751,10 +1751,32 @@
           "default": 1000,
           "description": "Default row limit for SELECT queries when auto-LIMIT is enabled."
         },
+        "postgresExplorer.performance.slidingWindowSelects": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use a PostgreSQL SCROLL cursor for eligible SELECT queries (no SQL parameters): stream one window of rows into the cell and fetch more on scroll—bounded RAM on host and webview."
+        },
+        "postgresExplorer.performance.slidingWindowRowCap": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 500,
+          "description": "Maximum rows kept in the result grid at once when sliding-window streaming is active."
+        },
         "postgresExplorer.query.autoLimitEnabled": {
           "type": "boolean",
           "default": true,
           "description": "Automatically append LIMIT clause to SELECT queries that don't have one. Always enabled in read-only mode."
+        },
+        "postgresExplorer.query.byteaDisplayFormat": {
+          "type": "string",
+          "enum": [
+            "hex0x",
+            "postgresql",
+            "json"
+          ],
+          "default": "hex0x",
+          "description": "Display format for binary (bytea) columns in query results: 0x-prefixed hex, PostgreSQL \\x hex, or JSON Buffer shape (debug)."
         },
         "postgresExplorer.parameters.cacheLastValues": {
           "type": "boolean",

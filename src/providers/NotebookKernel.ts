@@ -11,9 +11,19 @@ import {
   ExecuteUpdateBackgroundHandler, ScriptDeleteHandler, ExecuteUpdateHandler,
   CancelQueryHandler, DeleteRowsHandler, SaveChangesHandler
 } from '../services/handlers/QueryHandlers';
-import { ExportRequestHandler, ShowErrorMessageHandler, ImportRequestHandler, ImportPickFileHandler, OpenImportDataHandler } from '../services/handlers/CoreHandlers';
+import {
+  ExportRequestHandler,
+  ShowErrorMessageHandler,
+  ImportRequestHandler,
+  ImportPickFileHandler,
+  OpenImportDataHandler,
+  GridCommitPreferenceHandler,
+  RunDerivedQueryHandler,
+  NotebookOutputToolbarHandler,
+} from '../services/handlers/CoreHandlers';
 import { SendToChatHandler } from '../services/handlers/ExplainHandlers';
 import { FkLookupHandler } from '../services/handlers/FkLookupHandler';
+import { CursorWindowHandler } from '../services/handlers/CursorWindowHandler';
 import { InsertRowHandler } from '../services/handlers/InsertRowHandler';
 
 export class PostgresKernel implements vscode.Disposable {
@@ -81,8 +91,12 @@ export class PostgresKernel implements vscode.Disposable {
 
     registry.register('saveChanges', new SaveChangesHandler());
     registry.register('showErrorMessage', new ShowErrorMessageHandler());
+    registry.register('runDerivedQuery', new RunDerivedQueryHandler());
     registry.register('fkLookup', new FkLookupHandler());
+    registry.register('resultCursorFetch', new CursorWindowHandler());
     registry.register('insertRow', new InsertRowHandler());
+    registry.register('gridCommitPreference', new GridCommitPreferenceHandler(context));
+    registry.register('notebookOutputToolbar', new NotebookOutputToolbarHandler());
 
     (this._controller as any).onDidReceiveMessage(async (event: any) => {
       // console.log('[NotebookKernel] onDidReceiveMessage', event.message.type);

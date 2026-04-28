@@ -1,29 +1,62 @@
 import type { ActivationFunction } from 'vscode-notebook-renderer';
 import { Chart, registerables } from 'chart.js';
 import {
-  createButton,
-  createTab,
-  createBreadcrumb,
-  BreadcrumbSegment,
-} from '../../renderer/components/ui';
-import { createExportButton } from '../../renderer/features/export';
+  createExportButton,
+  positionExportDropdown,
+  setExportToolbarButtonLabel,
+  EXPORT_MENU_Z_INDEX,
+} from '../../renderer/features/export';
 import { TableRenderer, TableEvents } from '../../renderer/components/table/TableRenderer';
 import { ChartRenderer } from '../../renderer/components/chart/ChartRenderer';
 import { ChartControls } from '../../renderer/components/chart/ChartControls';
 import { ExplainVisualizer } from '../../renderer/components/ExplainVisualizer';
 import { createErrorPanel } from '../../renderer/components/ErrorPanel';
-import { createActionBar } from '../../renderer/components/ActionBar';
+import {
+  createAiMenuButton,
+  type AiMenuOptions,
+  type RowToolsOptions,
+} from '../../renderer/components/ActionBar';
+import {
+  RESULT_TOOLBAR_ICON_CLASS,
+  RESULT_TOOLBAR_LABEL_CLASS,
+  applyResultRowToolStyle,
+  applyResultViewTabStyle,
+  attachResultRowToolInteractions,
+  attachResultViewTabHover,
+  fillToolbarButtonContent,
+  fillOutputHoverToolButton,
+  resultToolbarSvg,
+  type ResultToolbarGlyph,
+} from '../../renderer/components/ResultToolbarUi';
+import { createResultIdentityBar } from '../../renderer/components/ResultIdentityBar';
+import { createInlineBanner } from '../../renderer/components/InlineBanner';
+import { openCommitConfirmDialog } from '../../renderer/components/CommitConfirmDialog';
+import {
+  createResultFooter,
+  formatResultExecutionStats,
+} from '../../renderer/components/ResultFooter';
 import { showImportModal } from '../../renderer/features/import';
 import { createTransactionBanner } from '../../renderer/components/TransactionBanner';
-import { parseBreadcrumbFromSql } from '../../renderer/utils/sqlParsing';
+import { buildQueryPreview } from '../../renderer/utils/queryPreview';
 import {
   addResultToHistory,
   getResultHistory,
   renderTabStrip,
 } from '../../renderer/components/ResultTabStrip';
 import { renderTransposeTable } from '../../renderer/components/TransposeView';
-import { renderAnalystPanel } from '../../renderer/components/analyst/AnalystPanel';
-import type { NoticeLogEntry } from '../../common/types';
+import {
+  renderAnalystPanel,
+  type PivotAiHelpContext,
+} from '../../renderer/components/analyst/AnalystPanel';
+import {
+  BYTEA_DISPLAY_DEFAULT,
+  type ByteaDisplayFormat,
+  type NoticeLogEntry,
+  type QueryResults,
+  type FilterState,
+  type SortState,
+  type TableRenderOptions,
+} from '../../common/types';
 import {
   normalizeNoticesPayload,
   renderNoticesLiveStream,
@@ -96,6 +129,69 @@ function clearTransactionUI(): void {
   document.querySelectorAll('.amber-gutter').forEach((el) => el.classList.remove('amber-gutter'));
 }
 
+const PIVOT_HELP_SQL_INLINE_MAX_CHARS = 12000;
+
+/** Rows attached as CSV when using Send to Chat from results (full grids are rarely useful). */
+const CHAT_SEND_SAMPLE_ROW_CAP = 10;
+
+function buildChatResultsSampleJson(
+  columns: string[],
+  rows: unknown[],
+  maxRows: number,
+): string | undefined {
+  if (maxRows <= 0 || rows.length === 0) {
+    return undefined;
+  }
+  return JSON.stringify({
+    columns,
+    rows: rows.slice(0, maxRows),
+  });
+}
+
+/** User message for SQL Assistant when pivot cardinality exceeds the client cap. */
+function buildPivotOptimizeUserMessage(ctx: PivotAiHelpContext, sourceSql: string): string {
+  const trimmed = sourceSql.trim();
+  let sqlInline = trimmed;
+  let truncationNote = '';
+  if (trimmed.length > PIVOT_HELP_SQL_INLINE_MAX_CHARS) {
+    sqlInline = trimmed.slice(0, PIVOT_HELP_SQL_INLINE_MAX_CHARS);
+    truncationNote = `\n-- … truncated for chat prompt (${trimmed.length.toLocaleString()} chars total); full SQL is attached as a file.`;
+  }
+
+  const valueLine =
+    ctx.aggregation === 'count' && !ctx.valueColumn
+      ? 'Count rows (no separate value column)'
+      : ctx.valueColumn ?? '—';
+
+  return [
+    'PgStudio Analyst tab: the in-browser pivot failed because there are too many distinct row or column labels.',
+    '',
+    'Help me rewrite my PostgreSQL query using server-side pre-aggregation (GROUP BY, rollups, bucketing, date_trunc, FILTER, CASE expressions, etc.) so pivot dimensions stay within a manageable cardinality.',
+    '',
+    `Pivot error: ${ctx.errorMessage}`,
+    '',
+    'Pivot configuration:',
+    `- Row dimension: ${ctx.rowDimension}`,
+    `- Column dimension: ${ctx.columnDimension}`,
+    `- Value column / measure: ${valueLine}`,
+    `- Aggregation: ${ctx.aggregation}`,
+    '',
+    'Context:',
+    `- UI cap (distinct values per axis): ${ctx.maxDistinctPerAxis}`,
+    `- Rows currently in this result grid: ${ctx.inMemoryRowCount.toLocaleString()}`,
+    `- Streaming sliding window: ${ctx.isStreamingWindow ? 'yes (only a subset of server rows may be loaded)' : 'no'}`,
+    '',
+    'No result grid CSV is attached (usually redundant here; use the attached SQL file and pivot fields above).',
+    '',
+    'Source SQL (also attached as a .sql file):',
+    '```sql',
+    sqlInline + truncationNote,
+    '```',
+    '',
+    'Please propose efficient PostgreSQL that returns an aggregation-friendly result set I can pivot in the notebook, plus any index notes if relevant.',
+  ].join('\n');
+}
+
 export const activate: ActivationFunction = (context) => {
   return {
     renderOutputItem(data, element) {
@@ -128,15 +224,32 @@ export const activate: ActivationFunction = (context) => {
         notices,
         executionTime,
         tableInfo,
-        success,
         columnTypes,
         backendPid,
         breadcrumb,
         autoLimitApplied,
         autoLimitValue,
       } = json;
+      const exportQuery: string | undefined =
+        typeof json.exportQuery === 'string' && json.exportQuery.trim().length > 0
+          ? json.exportQuery
+          : query;
+
+      let slideMeta: QueryResults['slidingWindow'] = json.slidingWindow;
+
+      const byteaDisplayFormat: ByteaDisplayFormat =
+        json.byteaDisplayFormat === 'postgresql' ||
+        json.byteaDisplayFormat === 'json' ||
+        json.byteaDisplayFormat === 'hex0x'
+          ? json.byteaDisplayFormat
+          : BYTEA_DISPLAY_DEFAULT;
 
       const noticeItems = normalizeNoticesPayload(notices);
+
+      const sourceCellIndex =
+        typeof json.sourceCellIndex === 'number' && json.sourceCellIndex >= 0
+          ? json.sourceCellIndex
+          : -1;
 
       // Transaction state from payload
       const transactionState: { isActive: boolean; statementCount: number } | undefined =
@@ -144,14 +257,181 @@ export const activate: ActivationFunction = (context) => {
       const pendingCommit: boolean = !!json.pendingCommit;
 
       // Data Management
-      const originalRows: any[] = rows ? JSON.parse(JSON.stringify(rows)) : [];
+      let originalRows: any[] = rows ? JSON.parse(JSON.stringify(rows)) : [];
       let currentRows: any[] = rows ? JSON.parse(JSON.stringify(rows)) : [];
+      let slideBufferedStartRow = slideMeta?.windowStartRow ?? 1;
+      let slideHasMoreBefore = slideMeta?.hasMoreBefore ?? false;
+      let slideHasMoreAfter = slideMeta?.hasMoreAfter ?? false;
+      let localFilterState: FilterState = { globalQuery: '', clauses: [] };
+      let localSortState: SortState = { column: null, direction: 'none' };
       const selectedIndices = new Set<number>();
       const modifiedCells = new Map<string, { originalValue: any; newValue: any }>();
       const rowsMarkedForDeletion = new Set<number>();
 
       // FK lookup pending callbacks — keyed by requestId
       const fkCallbacks = new Map<string, (rows: any[], cols: string[]) => void>();
+
+      const buildTableRenderOptions = (): TableRenderOptions => ({
+        columns,
+        rows: currentRows,
+        originalRows,
+        columnTypes,
+        tableInfo,
+        foreignKeys: tableInfo?.foreignKeys,
+        initialSelectedIndices: selectedIndices,
+        modifiedCells,
+        rowsMarkedForDeletion,
+        byteaDisplayFormat,
+        ...(slideMeta?.sessionId ? { rowNumberBaseline: slideBufferedStartRow } : {}),
+      });
+
+      const quoteIdentifier = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+      const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''");
+      const hasActiveLocalFilter = (): boolean =>
+        localFilterState.globalQuery.trim().length > 0 || localFilterState.clauses.length > 0;
+      const hasActiveLocalSort = (): boolean =>
+        !!localSortState.column && localSortState.direction !== 'none';
+      const buildDerivedQueryFromLocalScope = (): string | undefined => {
+        const base = (exportQuery || query || '').trim();
+        if (!base) return undefined;
+        const baseNoSemicolon = base.replace(/;\s*$/, '');
+        const alias = 'pgstudio_src';
+        const globalParts: string[] = [];
+        const whereParts: string[] = [];
+
+        const appendLikeCondition = (column: string, mode: 'contains' | 'startsWith' | 'endsWith', raw: string) => {
+          const v = escapeSqlLiteral(raw);
+          const pattern = mode === 'contains' ? `%${v}%` : mode === 'startsWith' ? `${v}%` : `%${v}`;
+          whereParts.push(`CAST(${alias}.${quoteIdentifier(column)} AS text) ILIKE '${pattern}'`);
+        };
+
+        const globalQuery = localFilterState.globalQuery.trim();
+        if (globalQuery) {
+          const pat = `%${escapeSqlLiteral(globalQuery)}%`;
+          for (const c of columns) {
+            globalParts.push(`CAST(${alias}.${quoteIdentifier(c)} AS text) ILIKE '${pat}'`);
+          }
+          if (globalParts.length > 0) {
+            whereParts.push(`(${globalParts.join(' OR ')})`);
+          }
+        }
+
+        for (const clause of localFilterState.clauses) {
+          if (!columns.includes(clause.column)) continue;
+          const value = clause.value ?? '';
+          if (clause.operator === 'equals') {
+            whereParts.push(
+              `CAST(${alias}.${quoteIdentifier(clause.column)} AS text) = '${escapeSqlLiteral(value)}'`,
+            );
+          } else if (clause.operator === 'contains') {
+            appendLikeCondition(clause.column, 'contains', value);
+          } else if (clause.operator === 'startsWith') {
+            appendLikeCondition(clause.column, 'startsWith', value);
+          } else if (clause.operator === 'endsWith') {
+            appendLikeCondition(clause.column, 'endsWith', value);
+          }
+        }
+
+        const hasWhere = whereParts.length > 0;
+        const sortColumn =
+          localSortState.column && columns.includes(localSortState.column)
+            ? localSortState.column
+            : null;
+        const hasSort = !!sortColumn && localSortState.direction !== 'none';
+
+        if (!hasWhere && !hasSort) {
+          return undefined;
+        }
+
+        const whereSql = hasWhere ? `\nWHERE ${whereParts.join('\n  AND ')}` : '';
+        const orderSql = hasSort
+          ? `\nORDER BY ${alias}.${quoteIdentifier(sortColumn!)} ${localSortState.direction.toUpperCase()}`
+          : '';
+
+        return `SELECT *\nFROM (\n${baseNoSemicolon}\n) AS ${alias}${whereSql}${orderSql};`;
+      };
+
+      const buildFullDatasetRerunQuery = (): string | undefined => {
+        const scoped = buildDerivedQueryFromLocalScope();
+        if (scoped) {
+          return scoped;
+        }
+        const base = (exportQuery || query || '').trim();
+        if (!base) {
+          return undefined;
+        }
+        return base.endsWith(';') ? base : `${base};`;
+      };
+
+      const createAnalyticsStreamingWarning = (
+        modeLabel: 'Chart' | 'Analyst',
+      ): HTMLElement | null => {
+        if (!slideMeta?.sessionId) {
+          return null;
+        }
+        const banner = createInlineBanner({
+          severity: 'warning',
+          message: `${modeLabel} in streaming mode uses loaded rows only. Run on full dataset for accurate results; this may have performance impact depending on local machine capacity.`,
+          actionLabel: 'Run on full dataset',
+          onAction: () => {
+            const rerunQuery = buildFullDatasetRerunQuery();
+            if (!rerunQuery) {
+              context.postMessage?.({
+                type: 'showErrorMessage',
+                message: 'No query available to rerun for full dataset.',
+              });
+              return;
+            }
+            context.postMessage?.({
+              type: 'runDerivedQuery',
+              query: rerunQuery,
+              source: `streaming-${modeLabel.toLowerCase()}-full-dataset`,
+              fullDataset: true,
+            });
+          },
+          dismissible: false,
+        });
+        banner.setAttribute('data-streaming-analytics-hint', modeLabel.toLowerCase());
+        return banner;
+      };
+
+      const refreshStreamingScopeNotice = (): void => {
+        mainContainer.querySelector('[data-streaming-scope-hint="true"]')?.remove();
+        if (!slideMeta?.sessionId) return;
+        const activeFilter = hasActiveLocalFilter();
+        const activeSort = hasActiveLocalSort();
+        if (!activeFilter && !activeSort) return;
+
+        const scopeBits: string[] = [];
+        if (activeFilter) scopeBits.push('filter');
+        if (activeSort) scopeBits.push('sort');
+        const msg = `Streaming mode: ${scopeBits.join(' + ')} is applied to loaded rows only.`;
+
+        const hint = createInlineBanner({
+          severity: 'warning',
+          message: msg,
+          actionLabel: 'Apply to full dataset',
+          onAction: () => {
+            const derived = buildDerivedQueryFromLocalScope();
+            if (!derived) {
+              context.postMessage?.({
+                type: 'showErrorMessage',
+                message: 'No active local filter/sort to apply.',
+              });
+              return;
+            }
+            context.postMessage?.({
+              type: 'runDerivedQuery',
+              query: derived,
+              source: 'streaming-local-scope',
+              fullDataset: true,
+            });
+          },
+          dismissible: false,
+        });
+        hint.setAttribute('data-streaming-scope-hint', 'true');
+        mainContainer.appendChild(hint);
+      };
 
       // Result history for tab strip — persists across re-renders in same output element
       const historyEntry = {
@@ -165,6 +445,7 @@ export const activate: ActivationFunction = (context) => {
         query,
         notices: noticeItems.length ? [...noticeItems] : undefined,
         timestamp: Date.now(),
+        byteaDisplayFormat,
       };
       const resultHistory = addResultToHistory(element, historyEntry);
 
@@ -182,204 +463,121 @@ export const activate: ActivationFunction = (context) => {
         box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
       `;
 
-      // Header
-      const header = document.createElement('div');
-      header.style.cssText = `
-        padding: 6px 12px;
-        border-bottom: 1px solid var(--vscode-widget-border);
-        cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none;
-        background: ${success ? 'color-mix(in srgb, var(--vscode-testing-iconPassed) 18%, var(--vscode-editor-background))' : 'color-mix(in srgb, var(--vscode-editor-background) 85%, var(--vscode-sideBar-background))'};
-      `;
-      if (success) {
-        header.style.borderLeft = '4px solid var(--vscode-testing-iconPassed)';
+      const contentContainer = document.createElement('div');
+      contentContainer.style.cssText = 'display: flex; flex-direction: column; height: 100%;';
+
+      let switchTab: (mode: string) => void = () => {};
+      let showOverflowMenu: (anchorEl: HTMLElement) => void = () => {};
+
+      let isExpanded = true;
+
+      const updateIdentityStats = (): void => {
+        const el = mainContainer.querySelector('[data-result-stats]') as HTMLElement | null;
+        if (!el) return;
+        let text: string;
+        if (slideMeta) {
+          const lastRow = slideMeta.windowStartRow + Math.max(currentRows.length, 1) - 1;
+          text = `${slideMeta.windowStartRow.toLocaleString()}–${lastRow.toLocaleString()} · window ${slideMeta.windowSize.toLocaleString()} · streaming`;
+          if (executionTime !== undefined) {
+            const ms = Math.round(executionTime * 1000);
+            text += ms >= 1000 ? ` · ${executionTime.toFixed(2)}s` : ` · ${ms}ms`;
+          }
+        } else {
+          text = formatResultExecutionStats(currentRows.length, executionTime);
+        }
+        el.textContent = text;
+        el.style.display = text.trim() ? 'inline-block' : 'none';
+      };
+
+      const identityBar = createResultIdentityBar({
+        queryPreview: buildQueryPreview(query, (command || 'QUERY').toUpperCase()),
+        queryFull: query,
+        command,
+        statsLine: json.error
+          ? undefined
+          : slideMeta
+            ? (() => {
+                const lastRow = slideMeta.windowStartRow + Math.max(rows?.length ?? 0, 1) - 1;
+                let t = `${slideMeta.windowStartRow.toLocaleString()}–${lastRow.toLocaleString()} · window ${slideMeta.windowSize.toLocaleString()} · streaming`;
+                if (executionTime !== undefined) {
+                  const ms = Math.round(executionTime * 1000);
+                  t += ms >= 1000 ? ` · ${executionTime.toFixed(2)}s` : ` · ${ms}ms`;
+                }
+                return t;
+              })()
+            : formatResultExecutionStats(currentRows.length, executionTime),
+        isCollapsed: false,
+        onToggleCollapse: () => {
+          isExpanded = !isExpanded;
+          contentContainer.style.display = isExpanded ? 'flex' : 'none';
+          const ch = identityBar.querySelector('[data-chevron]');
+          if (ch) {
+            ch.textContent = isExpanded ? '▼' : '▶';
+          }
+        },
+        onOverflow: (anchorEl) => showOverflowMenu(anchorEl),
+        onExpand: () =>
+          context.postMessage?.({
+            type: 'notebookOutputToolbar',
+            action: 'expand',
+            cellIndex: sourceCellIndex,
+          }),
+      });
+      mainContainer.appendChild(identityBar);
+
+      if (autoLimitApplied) {
+        const limitMsg =
+          autoLimitValue !== undefined
+            ? `Auto-LIMIT applied: showing ${rowCount?.toLocaleString() ?? '?'} rows (limit ${autoLimitValue})`
+            : 'A row limit was appended to this SELECT.';
+        mainContainer.appendChild(createInlineBanner({ severity: 'info', message: limitMsg }));
       }
 
-      const chevron = document.createElement('span');
-      chevron.textContent = '▼';
-      const chevronBase = 'font-size: 10px; display: inline-block;';
-      chevron.style.cssText = prefersReducedMotion()
-        ? chevronBase
-        : `${chevronBase} transition: transform 0.2s;`;
+      if (slideMeta && json.showSlidingCursorBanner === true && !json.error) {
+        mainContainer.appendChild(
+          createInlineBanner({
+            severity: 'info',
+            message:
+              'Server-side cursor: only one window of rows is loaded at a time. Scroll the grid near the top or bottom edge to fetch the previous or next page.',
+            onDismiss: () => context.postMessage?.({ type: 'cursorStreamBannerDismiss' }),
+            onMuteForever: () => context.postMessage?.({ type: 'cursorStreamBannerMute' }),
+          }),
+        );
+      }
 
-      const title = document.createElement('span');
-      title.textContent = command || 'QUERY';
-      title.style.cssText = 'font-weight: 600; text-transform: uppercase;';
+      if (json.performanceAnalysis?.isDegraded || json.slowQuery) {
+        const degraded = Boolean(json.performanceAnalysis?.isDegraded);
+        const perfMsg = degraded
+          ? json.performanceAnalysis!.analysis
+          : 'Slow query detected. Consider reviewing indexes and filters.';
+        mainContainer.appendChild(
+          createInlineBanner({ severity: degraded ? 'warning' : 'info', message: perfMsg }),
+        );
+      }
 
-      const summary = document.createElement('span');
-      summary.style.marginLeft = 'auto';
-      summary.style.opacity = '0.7';
-      summary.style.fontSize = '0.9em';
-
-      let summaryText = '';
-      if (rowCount !== undefined && rowCount !== null) summaryText += `${rowCount} rows`;
-      if (noticeItems.length)
-        summaryText += summaryText
-          ? `, ${noticeItems.length} notices`
-          : `${noticeItems.length} notices`;
-      if (executionTime !== undefined)
-        summaryText += summaryText
-          ? `, ${executionTime.toFixed(3)}s`
-          : `${executionTime.toFixed(3)}s`;
-      if (!summaryText) summaryText = 'No results';
-      summary.textContent = summaryText;
-
-      header.appendChild(chevron);
-      header.appendChild(title);
-      header.appendChild(summary);
-
-      // Pending commit badge — shown when result was produced inside an open transaction
-      if (autoLimitApplied) {
-        const limitBadge = document.createElement('span');
-        limitBadge.textContent =
-          autoLimitValue !== undefined ? `LIMIT ${autoLimitValue} applied` : 'LIMIT applied';
-        limitBadge.title = 'A row limit was appended to this SELECT by settings (auto-limit).';
-        limitBadge.style.cssText = `
-          font-size: 10px;
-          font-weight: 600;
-          padding: 2px 6px;
-          border-radius: 10px;
-          background: color-mix(in srgb, var(--vscode-textLink-foreground) 15%, transparent);
-          color: var(--vscode-textLink-foreground);
-          border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 40%, transparent);
-          margin-left: 8px;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        `;
-        header.appendChild(limitBadge);
+      if (noticeItems.length > 0) {
+        mainContainer.appendChild(
+          createInlineBanner({
+            severity: 'warning',
+            message: `${noticeItems.length} notice${noticeItems.length !== 1 ? 's' : ''} from PostgreSQL`,
+            actionLabel: 'View',
+            onAction: () => switchTab('notices'),
+          }),
+        );
       }
 
       if (pendingCommit) {
-        const pendingBadge = document.createElement('span');
-        pendingBadge.textContent = 'pending commit';
-        pendingBadge.style.cssText = `
-          font-size: 10px;
-          font-weight: 600;
-          padding: 2px 6px;
-          border-radius: 10px;
-          background: rgba(255, 176, 0, 0.25);
-          color: #ffb000;
-          border: 1px solid rgba(255, 176, 0, 0.5);
-          margin-left: 8px;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        `;
-        header.appendChild(pendingBadge);
+        mainContainer.appendChild(
+          createInlineBanner({
+            severity: 'info',
+            message:
+              'This result was produced inside an open transaction — changes are not durable until COMMIT.',
+            dismissible: false,
+          }),
+        );
       }
 
-      mainContainer.appendChild(header);
-
-      // Performance Warning
-      if (json.performanceAnalysis?.isDegraded || json.slowQuery) {
-        const perfBanner = document.createElement('div');
-        const degraded = Boolean(json.performanceAnalysis?.isDegraded);
-        const warningText = degraded
-          ? json.performanceAnalysis.analysis
-          : 'This query crossed the slow-query threshold. Consider reviewing indexes and filters.';
-        perfBanner.style.cssText = `
-          padding: 6px 12px;
-          background: ${degraded ? 'rgba(255, 165, 0, 0.15)' : BRAND_ACCENT_MUTED};
-          border-bottom: 1px solid ${degraded ? 'rgba(255, 165, 0, 0.3)' : BRAND_ACCENT};
-          color: var(--vscode-editorWarning-foreground);
-          font-size: 11px;
-          display: flex; align-items: center; gap: 6px;
-        `;
-        perfBanner.innerHTML = `<span style="font-size:14px">${degraded ? '⚠️' : '🐘'}</span> <span>${warningText}</span>`;
-        mainContainer.appendChild(perfBanner);
-      }
-
-      // Breadcrumb Navigation
-      if (breadcrumb) {
-        // Auto-populate schema/table from SQL when not provided in the payload (12.1)
-        let resolvedSchema = breadcrumb.schema;
-        let resolvedTable = breadcrumb.object?.name;
-        if ((!resolvedSchema || !resolvedTable) && query) {
-          const parsed = parseBreadcrumbFromSql(query);
-          if (!resolvedSchema && parsed.schema) {
-            resolvedSchema = parsed.schema;
-          }
-          if (!resolvedTable && parsed.table) {
-            resolvedTable = parsed.table;
-          }
-        }
-
-        const segments: BreadcrumbSegment[] = [];
-
-        if (breadcrumb.connectionName) {
-          segments.push({ label: breadcrumb.connectionName, id: 'connection', type: 'connection' });
-        }
-        if (breadcrumb.database) {
-          segments.push({ label: breadcrumb.database, id: 'database', type: 'database' });
-        }
-        if (resolvedSchema) {
-          segments.push({
-            label: resolvedSchema,
-            id: 'schema',
-            type: 'schema',
-            onClick: () => {
-              context.postMessage?.({
-                type: 'breadcrumbNavigate',
-                segment: resolvedSchema,
-                segmentType: 'schema',
-              });
-            },
-          });
-        }
-        if (resolvedTable) {
-          segments.push({
-            label: resolvedTable,
-            id: 'object',
-            type: 'object',
-            isLast: true,
-          });
-        }
-
-        // Mark last segment
-        if (segments.length > 0) {
-          segments[segments.length - 1].isLast = true;
-        }
-
-        const breadcrumbEl = createBreadcrumb(segments, {
-          onConnectionDropdown: (anchorEl: HTMLElement) => {
-            // Also emit breadcrumbNavigate for connection (12.2)
-            context.postMessage?.({
-              type: 'breadcrumbNavigate',
-              segment: breadcrumb.connectionName,
-              segmentType: 'connection',
-            });
-            context.postMessage?.({
-              type: 'showConnectionSwitcher',
-              connectionId: breadcrumb.connectionId,
-            });
-          },
-          onDatabaseDropdown: (anchorEl: HTMLElement) => {
-            // Also emit breadcrumbNavigate for database (12.2)
-            context.postMessage?.({
-              type: 'breadcrumbNavigate',
-              segment: breadcrumb.database,
-              segmentType: 'database',
-            });
-            context.postMessage?.({
-              type: 'showDatabaseSwitcher',
-              connectionId: breadcrumb.connectionId,
-              currentDatabase: breadcrumb.database,
-            });
-          },
-        });
-        mainContainer.appendChild(breadcrumbEl);
-      }
-
-      // Content Container
-      const contentContainer = document.createElement('div');
-      contentContainer.style.cssText = 'display: flex; flex-direction: column; height: 100%;';
       mainContainer.appendChild(contentContainer);
-
-      let isExpanded = true;
-      header.onclick = () => {
-        isExpanded = !isExpanded;
-        contentContainer.style.display = isExpanded ? 'flex' : 'none';
-        chevron.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
-        header.style.borderBottom = isExpanded ? '1px solid var(--vscode-widget-border)' : 'none';
-      };
 
       // Error Section
       if (json.error) {
@@ -405,207 +603,112 @@ export const activate: ActivationFunction = (context) => {
       const exportBtn = createExportButton(columns, currentRows, tableInfo, context, query);
       exportBtn.style.display = 'none';
 
-      // Actions Bar — built with ActionBar component
-      const actionsBar = createActionBar({
-        onSelectAll: () => {
-          // Toggle: if all rows are selected, deselect all; otherwise select all
-          if (selectedIndices.size === currentRows.length && currentRows.length > 0) {
-            selectedIndices.clear();
-          } else {
-            currentRows.forEach((_: any, i: number) => selectedIndices.add(i));
-          }
-          tableRenderer.updateSelection(selectedIndices);
-          updateActionsVisibility();
-        },
-        onCopy: () => {
-          // Copy selected rows (or all rows if none selected) to clipboard as CSV
-          const rowsToCopy =
-            selectedIndices.size > 0
-              ? Array.from(selectedIndices).map((i) => currentRows[i])
-              : currentRows;
-          const escapeCSV = (val: any): string => {
-            if (val === null || val === undefined) return '';
-            const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
-            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-              return `"${str.replace(/"/g, '""')}"`;
-            }
-            return str;
-          };
-          const csv = [
-            columns.map((c: string) => `"${c.replace(/"/g, '""')}"`).join(','),
-            ...rowsToCopy.map((r: any) => columns.map((c: string) => escapeCSV(r[c])).join(',')),
-          ].join('\n');
-          navigator.clipboard?.writeText(csv);
-        },
-        onImport: () => {
-          showImportModal(columns, tableInfo, context);
-        },
-        onExport: (anchorBtn: HTMLElement) => {
-          // Remove existing dropdown if open (toggle)
-          const existing = document.querySelector('.export-dropdown');
-          if (existing) {
-            existing.remove();
-            return;
-          }
+      const gridPrefRequestId = `gcp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      let skipGridCommitConfirm = false;
+      if (!json.error) {
+        context.postMessage?.({
+          type: 'gridCommitPreference',
+          action: 'get',
+          requestId: gridPrefRequestId,
+        });
+      }
 
-          const stringifyValue = (val: any): string => {
-            if (val === null || val === undefined) return '';
-            if (typeof val === 'object') return JSON.stringify(val);
-            return String(val);
-          };
-          const getCSV = () => {
-            const header = columns.map((c: string) => `"${c.replace(/"/g, '""')}"`).join(',');
-            const body = currentRows
-              .map((row: any) =>
-                columns
-                  .map((col: string) => {
-                    const str = stringifyValue(row[col]);
-                    return str.includes(',') || str.includes('"') || str.includes('\n')
-                      ? `"${str.replace(/"/g, '""')}"`
-                      : str;
-                  })
-                  .join(','),
-              )
-              .join('\n');
-            return `${header}\n${body}`;
-          };
-          const downloadFile = (content: string, filename: string, type: string) => {
-            const blob = new Blob([content], { type });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          };
+      /** Export dropdown for footer row tools + kernel export flows */
+      const openResultExportMenu = (anchorBtn: HTMLElement): void => {
+        const existing = document.querySelector('.export-dropdown');
+        if (existing) {
+          existing.remove();
+          return;
+        }
 
-          const menu = document.createElement('div');
-          menu.className = 'export-dropdown';
-          menu.style.cssText =
-            'position:fixed;background:var(--vscode-menu-background);border:1px solid var(--vscode-menu-border);box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:1000;min-width:160px;border-radius:3px;padding:4px 0;visibility:hidden;';
+        const menu = document.createElement('div');
+        menu.className = 'export-dropdown';
+        menu.style.cssText =
+          `position:fixed;background:var(--vscode-menu-background);border:1px solid var(--vscode-menu-border);box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:${EXPORT_MENU_Z_INDEX};min-width:160px;border-radius:3px;padding:4px 0;visibility:hidden;`;
 
-          const addItem = (label: string, onClick: () => void) => {
-            const item = document.createElement('div');
-            item.textContent = label;
-            item.style.cssText =
-              'padding:6px 12px;cursor:pointer;color:var(--vscode-menu-foreground);font-size:12px;';
-            item.onmouseenter = () => {
-              item.style.background = 'var(--vscode-menu-selectionBackground)';
-              item.style.color = 'var(--vscode-menu-selectionForeground)';
-            };
-            item.onmouseleave = () => {
-              item.style.background = 'transparent';
-              item.style.color = 'var(--vscode-menu-foreground)';
-            };
-            item.onclick = (e) => {
-              e.stopPropagation();
-              onClick();
-              menu.remove();
-            };
-            menu.appendChild(item);
+        const addItem = (label: string, onClick: () => void) => {
+          const item = document.createElement('div');
+          item.textContent = label;
+          item.style.cssText =
+            'padding:6px 12px;cursor:pointer;color:var(--vscode-menu-foreground);font-size:12px;';
+          item.onmouseenter = () => {
+            item.style.background = 'var(--vscode-menu-selectionBackground)';
+            item.style.color = 'var(--vscode-menu-selectionForeground)';
           };
+          item.onmouseleave = () => {
+            item.style.background = 'transparent';
+            item.style.color = 'var(--vscode-menu-foreground)';
+          };
+          item.onclick = (e) => {
+            e.stopPropagation();
+            onClick();
+            menu.remove();
+          };
+          menu.appendChild(item);
+        };
 
-          addItem('Save as CSV', () =>
-            downloadFile(getCSV(), `export_${Date.now()}.csv`, 'text/csv'),
-          );
-          addItem('Save as JSON', () =>
-            downloadFile(
-              JSON.stringify(currentRows, null, 2),
-              `export_${Date.now()}.json`,
-              'application/json',
-            ),
-          );
-          addItem('Save as Markdown', () => {
-            const header = `| ${columns.join(' | ')} |`;
-            const sep = `| ${columns.map(() => '---').join(' | ')} |`;
-            const body = currentRows
-              .map(
-                (row: any) =>
-                  `| ${columns
-                    .map((col: string) => {
-                      const v = row[col];
-                      if (v === null || v === undefined) return 'NULL';
-                      return (typeof v === 'object' ? JSON.stringify(v) : String(v))
-                        .replace(/\|/g, '\\|')
-                        .replace(/\n/g, ' ');
-                    })
-                    .join(' | ')} |`,
-              )
-              .join('\n');
-            downloadFile(`${header}\n${sep}\n${body}`, `export_${Date.now()}.md`, 'text/markdown');
+        const postExport = (
+          format: 'csv' | 'json' | 'markdown' | 'clipboard' | 'sqlinsert',
+        ): void => {
+          context.postMessage?.({
+            type: 'export_request',
+            format,
+            query: exportQuery,
+            columns,
+            rows: currentRows, // fallback only if full query export fails
+            tableInfo,
           });
-          addItem('Copy to Clipboard', () => {
-            navigator.clipboard?.writeText(getCSV()).then(() => {
-              anchorBtn.textContent = 'Copied!';
-              setTimeout(() => {
-                anchorBtn.textContent = '↓ Export';
-              }, 2000);
-            });
-          });
-          if (tableInfo) {
-            addItem('Copy SQL INSERT', () => {
-              const tableName = `"${tableInfo.schema}"."${tableInfo.table}"`;
-              const cols = columns.map((c: string) => `"${c}"`).join(', ');
-              const inserts = currentRows
-                .map((row: any) => {
-                  const vals = columns
-                    .map((col: string) => {
-                      const v = row[col];
-                      if (v === null || v === undefined) return 'NULL';
-                      if (typeof v === 'number') return v;
-                      if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
-                      const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
-                      return `'${s.replace(/'/g, "''")}'`;
-                    })
-                    .join(', ');
-                  return `INSERT INTO ${tableName} (${cols}) VALUES (${vals});`;
-                })
-                .join('\n');
-              navigator.clipboard?.writeText(inserts);
-            });
-          }
+        };
 
-          document.body.appendChild(menu);
-
-          const buttonRect = anchorBtn.getBoundingClientRect();
-          const menuWidth = Math.max(180, menu.getBoundingClientRect().width || 180);
-          const menuHeight = menu.getBoundingClientRect().height || 0;
-          const viewportPadding = 8;
-          const spaceBelow = window.innerHeight - buttonRect.bottom - viewportPadding;
-          const spaceAbove = buttonRect.top - viewportPadding;
-
-          let top = buttonRect.bottom + 4;
-          if (menuHeight > 0 && spaceBelow < menuHeight && spaceAbove > spaceBelow) {
-            top = Math.max(viewportPadding, buttonRect.top - menuHeight - 4);
-          }
-
-          let left = buttonRect.left;
-          if (left + menuWidth > window.innerWidth - viewportPadding) {
-            left = window.innerWidth - menuWidth - viewportPadding;
-          }
-          left = Math.max(viewportPadding, left);
-
-          menu.style.left = `${left}px`;
-          menu.style.top = `${top}px`;
-          menu.style.visibility = 'visible';
+        addItem('Save as CSV', () => postExport('csv'));
+        addItem('Save as JSON', () => postExport('json'));
+        addItem('Save as Markdown', () => postExport('markdown'));
+        addItem('Copy to Clipboard', () => {
+          postExport('clipboard');
+          setExportToolbarButtonLabel(anchorBtn as HTMLButtonElement, 'Working...');
           setTimeout(() => {
-            const close = () => {
-              menu.remove();
-              document.removeEventListener('click', close);
-            };
-            document.addEventListener('click', close);
-          }, 0);
-        },
+            setExportToolbarButtonLabel(anchorBtn as HTMLButtonElement, 'Export');
+          }, 2000);
+        });
+        if (tableInfo) {
+          addItem('Copy SQL INSERT', () => {
+            postExport('sqlinsert');
+            setExportToolbarButtonLabel(anchorBtn as HTMLButtonElement, 'Working...');
+            setTimeout(() => {
+              setExportToolbarButtonLabel(anchorBtn as HTMLButtonElement, 'Export');
+            }, 2000);
+          });
+        }
+
+        document.body.appendChild(menu);
+
+        positionExportDropdown(menu, anchorBtn);
+        menu.style.visibility = 'visible';
+        setTimeout(() => {
+          const close = () => {
+            menu.remove();
+            document.removeEventListener('click', close);
+          };
+          document.addEventListener('click', close);
+        }, 0);
+      };
+
+      const aiMenuCallbacks: AiMenuOptions = {
         onSendToChat: () => {
-          const resultsJson = JSON.stringify({ columns, rows: currentRows });
+          const resultsJson = buildChatResultsSampleJson(
+            columns,
+            currentRows,
+            CHAT_SEND_SAMPLE_ROW_CAP,
+          );
           context.postMessage?.({
             type: 'sendToChat',
             data: {
               query: json.query || '',
-              results: resultsJson,
-              message: 'I ran this query and got these results. Please help me understand them.',
+              ...(resultsJson ? { results: resultsJson } : {}),
+              message:
+                currentRows.length === 0
+                  ? 'I ran this query. There were no rows; please help me interpret or fix it.'
+                  : `I ran this query. The attachment includes at most ${CHAT_SEND_SAMPLE_ROW_CAP} sample rows from the result (not the full grid). Please help me understand the results.`,
             },
           });
         },
@@ -637,60 +740,7 @@ export const activate: ActivationFunction = (context) => {
             executionTime: json.executionTime,
           });
         },
-      });
-
-      // Capture left/right groups before appending extra elements
-      const leftActions = actionsBar.firstElementChild as HTMLElement;
-      const rightActions = actionsBar.children[2] as HTMLElement; // index 2: right group (0=left, 1=divider, 2=right)
-
-      // Delete button — appended to leftActions, shown when rows are selected
-      const deleteBtn = createButton('🗑️ Delete Selected', true, 'destructive');
-      deleteBtn.style.display = 'none';
-      deleteBtn.style.marginLeft = '8px';
-      leftActions.appendChild(deleteBtn);
-
-      // Detect if this is an EXPLAIN query (either JSON or text format)
-      const isExplainQuery =
-        json.explainPlan ||
-        (query && /^\s*EXPLAIN/i.test(query)) ||
-        command === 'EXPLAIN' ||
-        (columns.length === 1 && columns[0] === 'QUERY PLAN');
-
-      if (isExplainQuery) {
-        const explainPlanBtn = createButton('🧭 View Plan', true, 'ai');
-        explainPlanBtn.title = json.explainPlan
-          ? 'Open EXPLAIN ANALYZE plan view'
-          : 'Convert to JSON format and open visual plan view';
-
-        explainPlanBtn.onclick = () => {
-          if (json.explainPlan) {
-            if (explainTab) {
-              switchTab('explain');
-            } else {
-              context.postMessage?.({
-                type: 'showExplainPlan',
-                plan: json.explainPlan,
-                query: query || '',
-              });
-            }
-          } else {
-            console.log('Converting EXPLAIN to JSON, query:', query);
-            if (!query) {
-              alert('Cannot convert EXPLAIN plan: query not available');
-              return;
-            }
-            context.postMessage?.({
-              type: 'convertExplainToJson',
-              query: query,
-            });
-          }
-        };
-        rightActions.appendChild(explainPlanBtn);
-      }
-
-      if (!json.error) {
-        contentContainer.appendChild(actionsBar);
-      }
+      };
 
       // Save Changes Logic
       const parseCellKey = (key: string): { rowIndex: number; colName: string } | null => {
@@ -755,128 +805,293 @@ export const activate: ActivationFunction = (context) => {
         return rowsForDiff;
       };
 
+      const buildDeletionReviewRows = (): Array<{
+        rowIndex: number;
+        rowLabel: string;
+      }> => {
+        const sorted = Array.from(rowsMarkedForDeletion).sort((a, b) => a - b);
+        return sorted.map((rowIndex) => {
+          const pkLabel = tableInfo?.primaryKeys?.length
+            ? tableInfo.primaryKeys
+                .map((pk: string) => `${pk}=${formatDiffValue(originalRows[rowIndex]?.[pk])}`)
+                .join(', ')
+            : `row #${rowIndex + 1}`;
+          return {
+            rowIndex,
+            rowLabel: pkLabel,
+          };
+        });
+      };
+
       const renderReviewChangesView = (): HTMLElement => {
         const diffRows = buildEditDiffRows();
+        const deletionRows = buildDeletionReviewRows();
+        const pendingCount = modifiedCells.size + rowsMarkedForDeletion.size;
+
         const wrap = document.createElement('div');
-        wrap.style.cssText = 'height:100%;overflow:auto;';
+        wrap.style.cssText = 'height:100%;overflow:auto;display:flex;flex-direction:column;';
 
         const header = document.createElement('div');
         header.style.cssText =
-          'padding:10px 12px;border-bottom:1px solid var(--vscode-widget-border);display:flex;flex-direction:column;gap:2px;';
+          'padding:10px 12px;border-bottom:1px solid var(--vscode-widget-border);display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:10px;';
+
+        const headerText = document.createElement('div');
+        headerText.style.cssText = 'display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;';
+
         const titleEl = document.createElement('div');
         titleEl.textContent = 'Review Changes';
         titleEl.style.cssText = 'font-size:13px;font-weight:700;';
+
         const subtitleEl = document.createElement('div');
         const editedRowCount = new Set(diffRows.map((r) => r.rowIndex)).size;
-        subtitleEl.textContent = `${editedRowCount} row${editedRowCount !== 1 ? 's' : ''}, ${diffRows.length} edited cell${diffRows.length !== 1 ? 's' : ''}`;
+        const subParts: string[] = [];
+        if (diffRows.length > 0) {
+          subParts.push(
+            `${editedRowCount} row${editedRowCount !== 1 ? 's' : ''}, ${diffRows.length} edited cell${diffRows.length !== 1 ? 's' : ''}`,
+          );
+        }
+        if (deletionRows.length > 0) {
+          subParts.push(
+            `${deletionRows.length} row${deletionRows.length !== 1 ? 's' : ''} marked for deletion`,
+          );
+        }
+        subtitleEl.textContent = subParts.length > 0 ? subParts.join(' · ') : 'No pending changes';
         subtitleEl.style.cssText = 'font-size:11px;color:var(--vscode-descriptionForeground);';
-        header.appendChild(titleEl);
-        header.appendChild(subtitleEl);
+
+        headerText.appendChild(titleEl);
+        headerText.appendChild(subtitleEl);
+        header.appendChild(headerText);
+
+        if (pendingCount > 0) {
+          const revertReviewBtn = document.createElement('button');
+          revertReviewBtn.type = 'button';
+          revertReviewBtn.textContent = 'Revert all';
+          revertReviewBtn.title = 'Discard all unstaged edits and staged deletions';
+          revertReviewBtn.style.cssText = `
+            flex-shrink:0;padding:4px 12px;font-size:11px;font-family:var(--vscode-font-family);
+            cursor:pointer;border-radius:3px;font-weight:600;
+            background:color-mix(in srgb,#22c55e 14%,transparent);
+            color:#22c55e;
+            border:1px solid color-mix(in srgb,#22c55e 38%,transparent);
+          `;
+          revertReviewBtn.onmouseover = () => {
+            revertReviewBtn.style.background = 'color-mix(in srgb,#22c55e 22%,transparent)';
+          };
+          revertReviewBtn.onmouseout = () => {
+            revertReviewBtn.style.background = 'color-mix(in srgb,#22c55e 14%,transparent)';
+          };
+          revertReviewBtn.onclick = () => {
+            tableRenderer.revertAllPendingChanges();
+            syncPendingChangesUi();
+            switchTab('table');
+          };
+          header.appendChild(revertReviewBtn);
+        }
+
         wrap.appendChild(header);
 
-        if (diffRows.length === 0) {
+        if (diffRows.length === 0 && deletionRows.length === 0) {
           const empty = document.createElement('div');
           empty.style.cssText =
             'padding:20px 16px;color:var(--vscode-descriptionForeground);font-size:12px;';
-          empty.textContent = 'No edited cells to review yet.';
+          empty.textContent = 'No pending edits or deletions to review.';
           wrap.appendChild(empty);
           return wrap;
         }
 
-        const table = document.createElement('table');
-        table.style.cssText =
-          'width:100%;border-collapse:separate;border-spacing:0;font-size:12px;line-height:1.45;';
+        const appendEditTable = () => {
+          if (diffRows.length === 0) return;
 
-        const thead = document.createElement('thead');
-        const htr = document.createElement('tr');
-        ['Row', 'Column', 'Old Value', 'New Value'].forEach((label) => {
-          const th = document.createElement('th');
-          th.textContent = label;
-          th.style.cssText =
-            'position:sticky;top:0;z-index:1;text-align:left;padding:8px 10px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-widget-border);font-weight:600;';
-          htr.appendChild(th);
-        });
-        thead.appendChild(htr);
-        table.appendChild(thead);
+          const sectionLabel = document.createElement('div');
+          sectionLabel.textContent = 'Cell edits';
+          sectionLabel.style.cssText =
+            'padding:8px 12px 4px;font-size:11px;font-weight:600;color:var(--vscode-descriptionForeground);text-transform:uppercase;letter-spacing:0.04em;';
+          wrap.appendChild(sectionLabel);
 
-        const tbody = document.createElement('tbody');
-        diffRows.forEach((row, idx) => {
-          const tr = document.createElement('tr');
-          const stripe = idx % 2 === 0 ? 'transparent' : 'var(--vscode-keybindingTable-rowsBackground)';
-          tr.style.background = stripe;
+          const table = document.createElement('table');
+          table.style.cssText =
+            'width:100%;border-collapse:separate;border-spacing:0;font-size:12px;line-height:1.45;';
 
-          const rowTd = document.createElement('td');
-          rowTd.textContent = row.rowLabel;
-          rowTd.style.cssText =
-            'padding:7px 10px;border-bottom:1px solid var(--vscode-widget-border);font-family:var(--vscode-editor-font-family),monospace;white-space:nowrap;';
+          const thead = document.createElement('thead');
+          const htr = document.createElement('tr');
+          ['Row', 'Column', 'Old Value', 'New Value'].forEach((label) => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            th.style.cssText =
+              'position:sticky;top:0;z-index:1;text-align:left;padding:8px 10px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-widget-border);font-weight:600;';
+            htr.appendChild(th);
+          });
+          thead.appendChild(htr);
+          table.appendChild(thead);
 
-          const colTd = document.createElement('td');
-          colTd.textContent = row.colName;
-          colTd.style.cssText =
-            'padding:7px 10px;border-bottom:1px solid var(--vscode-widget-border);font-family:var(--vscode-editor-font-family),monospace;';
+          const tbody = document.createElement('tbody');
+          diffRows.forEach((row, idx) => {
+            const tr = document.createElement('tr');
+            const stripe = idx % 2 === 0 ? 'transparent' : 'var(--vscode-keybindingTable-rowsBackground)';
+            tr.style.background = stripe;
 
-          const oldTd = document.createElement('td');
-          oldTd.textContent = row.oldValue;
-          oldTd.style.cssText =
-            'padding:7px 10px;border-bottom:1px solid var(--vscode-widget-border);font-family:var(--vscode-editor-font-family),monospace;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-          oldTd.title = row.oldValue;
+            const rowTd = document.createElement('td');
+            rowTd.textContent = row.rowLabel;
+            rowTd.style.cssText =
+              'padding:7px 10px;border-bottom:1px solid var(--vscode-widget-border);font-family:var(--vscode-editor-font-family),monospace;white-space:nowrap;';
 
-          const newTd = document.createElement('td');
-          newTd.textContent = row.newValue;
-          newTd.style.cssText =
-            'padding:7px 10px;border-bottom:1px solid var(--vscode-widget-border);font-family:var(--vscode-editor-font-family),monospace;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:color-mix(in srgb, #f59e0b 12%, transparent);';
-          newTd.title = row.newValue;
+            const colTd = document.createElement('td');
+            colTd.textContent = row.colName;
+            colTd.style.cssText =
+              'padding:7px 10px;border-bottom:1px solid var(--vscode-widget-border);font-family:var(--vscode-editor-font-family),monospace;';
 
-          tr.appendChild(rowTd);
-          tr.appendChild(colTd);
-          tr.appendChild(oldTd);
-          tr.appendChild(newTd);
-          tbody.appendChild(tr);
-        });
+            const oldTd = document.createElement('td');
+            oldTd.textContent = row.oldValue;
+            oldTd.style.cssText =
+              'padding:7px 10px;border-bottom:1px solid var(--vscode-widget-border);font-family:var(--vscode-editor-font-family),monospace;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            oldTd.title = row.oldValue;
 
-        table.appendChild(tbody);
-        wrap.appendChild(table);
+            const newTd = document.createElement('td');
+            newTd.textContent = row.newValue;
+            newTd.style.cssText =
+              'padding:7px 10px;border-bottom:1px solid var(--vscode-widget-border);font-family:var(--vscode-editor-font-family),monospace;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:color-mix(in srgb, #f59e0b 12%, transparent);';
+            newTd.title = row.newValue;
+
+            tr.appendChild(rowTd);
+            tr.appendChild(colTd);
+            tr.appendChild(oldTd);
+            tr.appendChild(newTd);
+            tbody.appendChild(tr);
+          });
+
+          table.appendChild(tbody);
+          wrap.appendChild(table);
+        };
+
+        const appendDeletionCards = () => {
+          if (deletionRows.length === 0) return;
+
+          const sectionLabel = document.createElement('div');
+          sectionLabel.textContent = 'Rows to delete';
+          sectionLabel.style.cssText =
+            'padding:12px 12px 4px;font-size:11px;font-weight:600;color:var(--vscode-descriptionForeground);text-transform:uppercase;letter-spacing:0.04em;';
+          wrap.appendChild(sectionLabel);
+
+          const divider = document.createElement('div');
+          divider.style.cssText =
+            'height:1px;margin:2px 12px 12px;background:color-mix(in srgb,var(--vscode-widget-border) 85%,transparent);';
+          wrap.appendChild(divider);
+
+          const cardsWrap = document.createElement('div');
+          cardsWrap.style.cssText =
+            'display:flex;flex-direction:column;gap:12px;padding:0 12px 16px;';
+
+          deletionRows.forEach(({ rowIndex, rowLabel }) => {
+            const rowData = originalRows[rowIndex] as Record<string, unknown> | undefined;
+
+            const card = document.createElement('article');
+            card.style.cssText = `
+              border:1px solid color-mix(in srgb, var(--vscode-widget-border) 70%, transparent);
+              border-radius:8px;
+              overflow:hidden;
+              background:color-mix(in srgb, #dc2626 7%, var(--vscode-editor-background));
+              box-shadow:0 1px 2px rgba(0,0,0,0.06);
+            `;
+
+            const head = document.createElement('header');
+            head.style.cssText = `
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+              gap:12px;
+              padding:8px 12px;
+              border-bottom:1px solid color-mix(in srgb, var(--vscode-widget-border) 55%, transparent);
+              background:color-mix(in srgb, #dc2626 11%, transparent);
+            `;
+
+            const title = document.createElement('div');
+            title.style.cssText =
+              'font-size:12px;font-weight:700;font-family:var(--vscode-editor-font-family),monospace;color:var(--vscode-editor-foreground);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            title.textContent = `Row ${rowLabel}`;
+
+            const undoBtn = document.createElement('button');
+            undoBtn.type = 'button';
+            undoBtn.textContent = 'Undo';
+            undoBtn.title = 'Remove this row from the deletion queue';
+            undoBtn.style.cssText = `
+              flex-shrink:0;padding:3px 10px;font-size:11px;font-family:var(--vscode-font-family);
+              cursor:pointer;border-radius:4px;font-weight:600;
+              background:transparent;color:var(--vscode-textLink-foreground);
+              border:1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 38%, transparent);
+            `;
+            undoBtn.onmouseover = () => {
+              undoBtn.style.background =
+                'color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 55%, transparent)';
+            };
+            undoBtn.onmouseout = () => {
+              undoBtn.style.background = 'transparent';
+            };
+            undoBtn.onclick = () => {
+              rowsMarkedForDeletion.delete(rowIndex);
+              syncPendingChangesUi();
+              tableRenderer.render(buildTableRenderOptions());
+              switchTab('review');
+            };
+
+            head.appendChild(title);
+            head.appendChild(undoBtn);
+
+            const body = document.createElement('div');
+            body.style.cssText =
+              'padding:10px 12px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-start;';
+
+            columns.forEach((colName: string) => {
+              const chip = document.createElement('span');
+              chip.style.cssText =
+                'display:inline-flex;align-items:baseline;gap:4px;font-size:11px;font-family:var(--vscode-editor-font-family),monospace;line-height:1.4;max-width:100%;word-break:break-word;';
+              const k = document.createElement('span');
+              k.style.cssText = 'color:var(--vscode-descriptionForeground);font-weight:600;flex-shrink:0;';
+              k.textContent = `${colName}=`;
+              const v = document.createElement('span');
+              v.style.color = 'var(--vscode-editor-foreground)';
+              v.textContent = formatDiffValue(rowData?.[colName]);
+              chip.appendChild(k);
+              chip.appendChild(v);
+              body.appendChild(chip);
+            });
+
+            const foot = document.createElement('footer');
+            foot.style.cssText =
+              'padding:7px 12px 10px;font-size:10px;color:var(--vscode-descriptionForeground);font-style:italic;border-top:1px dashed color-mix(in srgb, var(--vscode-widget-border) 55%, transparent);';
+            foot.textContent = '→ Will be removed when you commit.';
+
+            card.appendChild(head);
+            card.appendChild(body);
+            card.appendChild(foot);
+            cardsWrap.appendChild(card);
+          });
+
+          wrap.appendChild(cardsWrap);
+        };
+
+        appendEditTable();
+        appendDeletionCards();
         return wrap;
       };
 
-      const saveBtn = createButton('Save Changes', true, 'success');
-      saveBtn.style.marginRight = '8px';
+      let reviewTabBtn: HTMLButtonElement | null = null;
 
-      let reviewTab: HTMLElement | null = null;
-      const updateReviewTabLabel = () => {
-        if (!reviewTab) return;
-        const editedRows = new Set(
-          Array.from(modifiedCells.keys())
-            .map((key) => parseCellKey(key)?.rowIndex)
-            .filter((idx): idx is number => typeof idx === 'number'),
-        ).size;
-        reviewTab.textContent = editedRows > 0 ? `Review Changes (${editedRows})` : 'Review Changes';
-      };
+      /** Active view — used so the footer hides Delete when not on the table tab */
+      let currentMode: string = 'table';
 
-      const updateSaveButtonVisibility = () => {
-        // Show save button if there are edits OR deletions
-        const hasChanges = modifiedCells.size > 0 || rowsMarkedForDeletion.size > 0;
-        updateReviewTabLabel();
+      let syncReviewTabButton: () => void = () => {};
 
-        if (hasChanges) {
-          if (!rightActions.contains(saveBtn)) rightActions.prepend(saveBtn);
+      let stopPendingSaveLoading: (() => void) | undefined;
 
-          // Build button text with counts
-          const parts = [];
-          if (modifiedCells.size > 0)
-            parts.push(`${modifiedCells.size} edit${modifiedCells.size !== 1 ? 's' : ''}`);
-          if (rowsMarkedForDeletion.size > 0)
-            parts.push(
-              `${rowsMarkedForDeletion.size} deletion${rowsMarkedForDeletion.size !== 1 ? 's' : ''}`,
-            );
-          saveBtn.innerText = `💾 Save Changes (${parts.join(', ')})`;
-        } else {
-          if (rightActions.contains(saveBtn)) rightActions.removeChild(saveBtn);
-        }
-      };
+      let refreshResultFooter: () => void = () => {};
 
-      saveBtn.onclick = () => {
-        console.log('Renderer: Save button clicked');
+      function syncPendingChangesUi(): void {
+        syncReviewTabButton();
+        refreshResultFooter();
+      }
+
+      function runPerformSaveCommit(): void {
+        console.log('Renderer: Commit / save invoked');
         console.log('Renderer: Modified cells size:', modifiedCells.size);
         console.log('Renderer: Rows marked for deletion:', rowsMarkedForDeletion.size);
 
@@ -904,7 +1119,6 @@ export const activate: ActivationFunction = (context) => {
           }
         });
 
-        // Build deletions array
         const deletions: any[] = [];
         rowsMarkedForDeletion.forEach((rowIndex) => {
           if (tableInfo?.primaryKeys) {
@@ -914,7 +1128,7 @@ export const activate: ActivationFunction = (context) => {
             });
             deletions.push({
               keys: pkValues,
-              row: originalRows[rowIndex], // Include full row for reference
+              row: originalRows[rowIndex],
             });
           }
         });
@@ -924,9 +1138,14 @@ export const activate: ActivationFunction = (context) => {
 
         if (updates.length > 0 || deletions.length > 0) {
           console.log('Renderer: Posting saveChanges message');
-          const stopLoading = startButtonLoading(saveBtn, 'Saving...');
-          // stopLoading is called when saveSuccess or saveFailed arrives
-          (saveBtn as any)._stopLoading = stopLoading;
+          stopPendingSaveLoading?.();
+          stopPendingSaveLoading = undefined;
+          const commitBtn = contentContainer.querySelector(
+            '[data-pg-result-commit]',
+          ) as HTMLButtonElement | null;
+          stopPendingSaveLoading = commitBtn
+            ? startButtonLoading(commitBtn, 'Saving...')
+            : undefined;
           context.postMessage?.({
             type: 'saveChanges',
             updates,
@@ -938,17 +1157,63 @@ export const activate: ActivationFunction = (context) => {
             ? 'No primary keys found for this table.'
             : 'Unknown error preparing updates.';
           console.warn(`Renderer: Save failed. ${reason}`);
-
-          // Inform user nicely
           context.postMessage?.({
             type: 'showErrorMessage',
             message: `Cannot save changes: ${reason} (Primary keys are required to identify rows)`,
           });
         }
-      };
+      }
+
+      function performSave(): void {
+        const dirty = modifiedCells.size + rowsMarkedForDeletion.size;
+        if (dirty <= 0) {
+          return;
+        }
+        if (skipGridCommitConfirm) {
+          runPerformSaveCommit();
+          return;
+        }
+        openCommitConfirmDialog({
+          confirmLabel: `Commit (${dirty})`,
+          onConfirm: (dontAskAgain) => {
+            if (dontAskAgain) {
+              skipGridCommitConfirm = true;
+              context.postMessage?.({
+                type: 'gridCommitPreference',
+                action: 'set',
+                skipConfirm: true,
+              });
+            }
+            runPerformSaveCommit();
+          },
+          onCancel: () => {},
+        });
+      }
+
+      let applyCursorResponse: ((message: any) => void) | undefined;
+
+      function markSelectedRowsForDeletion(): void {
+        if (selectedIndices.size === 0) return;
+        selectedIndices.forEach((index) => {
+          rowsMarkedForDeletion.add(index);
+        });
+        selectedIndices.clear();
+        syncPendingChangesUi();
+        tableRenderer.render(buildTableRenderOptions());
+        updateActionsVisibility();
+      }
 
       // Listen for messages from extension host
       context.onDidReceiveMessage?.((message: any) => {
+        if (
+          message.type === 'gridCommitPreferenceResponse' &&
+          message.requestId === gridPrefRequestId &&
+          message.skipConfirm === true
+        ) {
+          skipGridCommitConfirm = true;
+          return;
+        }
+
         // FK lookup response — resolve the waiting dropdown callback
         if (message.type === 'fkLookupResponse') {
           const cb = fkCallbacks.get(message.requestId);
@@ -956,6 +1221,11 @@ export const activate: ActivationFunction = (context) => {
             cb(message.rows || [], message.columns || []);
             fkCallbacks.delete(message.requestId);
           }
+          return;
+        }
+
+        if (message.type === 'resultCursorResponse') {
+          applyCursorResponse?.(message);
           return;
         }
 
@@ -974,9 +1244,8 @@ export const activate: ActivationFunction = (context) => {
             'Renderer: Received saveSuccess, clearing modified cells and removing deleted rows',
           );
 
-          // Stop the loading spinner on the save button
-          (saveBtn as any)._stopLoading?.();
-          (saveBtn as any)._stopLoading = undefined;
+          stopPendingSaveLoading?.();
+          stopPendingSaveLoading = undefined;
 
           // Update originalRows with edited values before removing any rows.
           // The renderer now tracks edits by stable source index, so applying
@@ -1001,64 +1270,200 @@ export const activate: ActivationFunction = (context) => {
           modifiedCells.clear();
           rowsMarkedForDeletion.clear();
 
-          // Update save button visibility
-          updateSaveButtonVisibility();
+          syncPendingChangesUi();
 
           // Re-render table to remove highlights and deleted rows
           if (tableRenderer) {
-            tableRenderer.render({
-              columns,
-              rows: currentRows,
-              originalRows,
-              columnTypes,
-              tableInfo,
-              initialSelectedIndices: selectedIndices,
-              modifiedCells,
-            });
+            tableRenderer.render(buildTableRenderOptions());
           }
         }
 
         if (message.type === 'saveFailed') {
-          // Restore save button on error
-          (saveBtn as any)._stopLoading?.();
-          (saveBtn as any)._stopLoading = undefined;
+          stopPendingSaveLoading?.();
+          stopPendingSaveLoading = undefined;
         }
       });
 
-      // Tabs
-      const tabs = document.createElement('div');
-      tabs.style.cssText =
-        'display: flex; padding: 0 12px; margin-top: 8px; border-bottom: 1px solid var(--vscode-panel-border);';
+      /** Last Table / Chart / Analyst view when browsing notices etc. */
+      let lastPrimaryMode: 'table' | 'chart' | 'analyst' = 'table';
 
-      const tableTab = createTab('Table', 'table', true, () => switchTab('table'));
-      const chartTab = createTab('Chart', 'chart', false, () => switchTab('chart'));
-      const analystTab = createTab('Analyst', 'analyst', false, () => switchTab('analyst'));
+      // Secondary band: left = Table / Chart / … + optional View Plan; right = Export chart + AI (after chart init)
+      const secondaryTabsOuter = document.createElement('div');
+      secondaryTabsOuter.style.cssText =
+        'display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;border-bottom:1px solid var(--vscode-panel-border);background:var(--vscode-editor-background);';
 
-      const noticesTabLabel =
+      const secondaryTabsLeft = document.createElement('div');
+      secondaryTabsLeft.style.cssText =
+        'display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:1;min-width:0;';
+
+      const secondaryTabsRight = document.createElement('div');
+      secondaryTabsRight.style.cssText =
+        'display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;';
+
+      const isExplainQuery =
+        json.explainPlan ||
+        (query && /^\s*EXPLAIN/i.test(query)) ||
+        command === 'EXPLAIN' ||
+        (columns.length === 1 && columns[0] === 'QUERY PLAN');
+
+      if (isExplainQuery) {
+        const explainPlanBtn = document.createElement('button');
+        explainPlanBtn.type = 'button';
+        fillToolbarButtonContent(explainPlanBtn, 'explain', 'View Plan');
+        applyResultRowToolStyle(explainPlanBtn);
+        attachResultRowToolInteractions(explainPlanBtn);
+        explainPlanBtn.title = json.explainPlan
+          ? 'Open EXPLAIN ANALYZE plan view'
+          : 'Convert to JSON format and open visual plan view';
+
+        explainPlanBtn.onclick = () => {
+          if (json.explainPlan) {
+            switchTab('explain');
+          } else {
+            console.log('Converting EXPLAIN to JSON, query:', query);
+            if (!query) {
+              alert('Cannot convert EXPLAIN plan: query not available');
+              return;
+            }
+            context.postMessage?.({
+              type: 'convertExplainToJson',
+              query: query,
+            });
+          }
+        };
+        secondaryTabsLeft.appendChild(explainPlanBtn);
+      }
+
+      const tableViewBtn = document.createElement('button');
+      tableViewBtn.type = 'button';
+      fillToolbarButtonContent(tableViewBtn, 'table', 'Table');
+      tableViewBtn.onclick = () => switchTab('table');
+      attachResultViewTabHover(tableViewBtn);
+
+      const chartViewBtn = document.createElement('button');
+      chartViewBtn.type = 'button';
+      fillToolbarButtonContent(chartViewBtn, 'chart', 'Chart');
+      chartViewBtn.onclick = () => switchTab('chart');
+      attachResultViewTabHover(chartViewBtn);
+
+      const analystViewBtn = document.createElement('button');
+      analystViewBtn.type = 'button';
+      fillToolbarButtonContent(analystViewBtn, 'analyst', 'Analyst');
+      analystViewBtn.onclick = () => switchTab('analyst');
+      attachResultViewTabHover(analystViewBtn);
+
+      const syncPrimaryButtons = () => {
+        applyResultViewTabStyle(tableViewBtn, lastPrimaryMode === 'table');
+        applyResultViewTabStyle(chartViewBtn, lastPrimaryMode === 'chart');
+        applyResultViewTabStyle(analystViewBtn, lastPrimaryMode === 'analyst');
+      };
+      syncPrimaryButtons();
+
+      const noticesBtn = document.createElement('button');
+      noticesBtn.type = 'button';
+      const noticesLabel =
         noticeItems.length > 0 ? `Notices (${noticeItems.length})` : 'Notices';
-      const noticesTab = createTab(noticesTabLabel, 'notices', false, () => switchTab('notices'));
-      reviewTab = createTab('Review Changes', 'review', false, () => switchTab('review'));
-      updateReviewTabLabel();
+      fillToolbarButtonContent(noticesBtn, 'notices', noticesLabel);
+      noticesBtn.onclick = () => switchTab('notices');
+      applyResultViewTabStyle(noticesBtn, false);
+      attachResultViewTabHover(noticesBtn);
 
-      let explainTab: HTMLElement | null = null;
+      const transposeBtn = document.createElement('button');
+      transposeBtn.type = 'button';
+      fillToolbarButtonContent(transposeBtn, 'transpose', 'Transpose');
+      transposeBtn.onclick = () => switchTab('transpose');
+      applyResultViewTabStyle(transposeBtn, false);
+      attachResultViewTabHover(transposeBtn);
+
+      reviewTabBtn = document.createElement('button');
+      reviewTabBtn.type = 'button';
+      reviewTabBtn.onclick = () => switchTab('review');
+
+      let explainTabBtn: HTMLButtonElement | null = null;
       if (json.explainPlan) {
-        explainTab = createTab('Explain Plan', 'explain', false, () => switchTab('explain'));
+        explainTabBtn = document.createElement('button');
+        explainTabBtn.type = 'button';
+        fillToolbarButtonContent(explainTabBtn, 'explain', 'Explain Plan');
+        explainTabBtn.onclick = () => switchTab('explain');
+        applyResultViewTabStyle(explainTabBtn, false);
+        attachResultViewTabHover(explainTabBtn);
       }
 
-      const transposeTab = createTab('⇄ Transpose', 'transpose', false, () =>
-        switchTab('transpose'),
-      );
+      const REVIEW_AMBER = '#f59e0b';
+      syncReviewTabButton = () => {
+        if (!reviewTabBtn) return;
+        const pending = modifiedCells.size + rowsMarkedForDeletion.size;
+        const isActive = currentMode === 'review';
 
-      tabs.appendChild(tableTab);
-      tabs.appendChild(chartTab);
-      tabs.appendChild(analystTab);
-      tabs.appendChild(noticesTab);
-      tabs.appendChild(reviewTab);
-      if (explainTab) tabs.appendChild(explainTab);
-      tabs.appendChild(transposeTab);
+        reviewTabBtn.replaceChildren();
+        const ic = document.createElement('span');
+        ic.className = RESULT_TOOLBAR_ICON_CLASS;
+        ic.innerHTML = resultToolbarSvg('review');
+        const title = document.createElement('span');
+        title.className = RESULT_TOOLBAR_LABEL_CLASS;
+        title.textContent = 'Review Changes';
+        reviewTabBtn.appendChild(ic);
+        reviewTabBtn.appendChild(title);
+
+        if (pending > 0) {
+          const badge = document.createElement('span');
+          badge.textContent = String(pending);
+          badge.title = `${pending} pending change(s)`;
+          badge.style.cssText = `
+            display:inline-block;
+            margin-left:6px;
+            min-width:18px;
+            text-align:center;
+            padding:0 6px;
+            border-radius:999px;
+            font-size:10px;
+            font-weight:700;
+            line-height:16px;
+            vertical-align:middle;
+            background:color-mix(in srgb, ${REVIEW_AMBER} 26%, transparent);
+            color:${REVIEW_AMBER};
+            border:1px solid color-mix(in srgb, ${REVIEW_AMBER} 48%, transparent);
+          `;
+          reviewTabBtn.appendChild(badge);
+        }
+
+        applyResultViewTabStyle(reviewTabBtn, isActive);
+        if (pending > 0) {
+          reviewTabBtn.style.background = isActive
+            ? `color-mix(in srgb, ${REVIEW_AMBER} 18%, color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 88%, transparent))`
+            : `color-mix(in srgb, ${REVIEW_AMBER} 14%, transparent)`;
+          reviewTabBtn.style.borderColor = `color-mix(in srgb, ${REVIEW_AMBER} 42%, var(--vscode-widget-border))`;
+        }
+        if (!isActive) {
+          reviewTabBtn.style.color = 'var(--vscode-editor-foreground)';
+        }
+      };
+
+      reviewTabBtn.addEventListener('mouseenter', () => {
+        if (!reviewTabBtn || currentMode === 'review') return;
+        const pending = modifiedCells.size + rowsMarkedForDeletion.size;
+        reviewTabBtn.style.background = pending > 0
+          ? `color-mix(in srgb, ${REVIEW_AMBER} 16%, color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 48%, transparent))`
+          : 'color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 55%, transparent)';
+      });
+      reviewTabBtn.addEventListener('mouseleave', () => syncReviewTabButton());
+
+      secondaryTabsLeft.appendChild(tableViewBtn);
+      secondaryTabsLeft.appendChild(chartViewBtn);
+      secondaryTabsLeft.appendChild(analystViewBtn);
+      secondaryTabsLeft.appendChild(noticesBtn);
+      secondaryTabsLeft.appendChild(transposeBtn);
+      secondaryTabsLeft.appendChild(reviewTabBtn);
+      if (explainTabBtn) secondaryTabsLeft.appendChild(explainTabBtn);
+
+      secondaryTabsOuter.appendChild(secondaryTabsLeft);
+      secondaryTabsOuter.appendChild(secondaryTabsRight);
+
       if (!json.error) {
-        contentContainer.appendChild(tabs);
+        contentContainer.appendChild(secondaryTabsOuter);
       }
+
+      syncReviewTabButton();
 
       // Views Containers
       const viewContainer = document.createElement('div');
@@ -1076,7 +1481,7 @@ export const activate: ActivationFunction = (context) => {
           updateActionsVisibility();
         },
         onDataChange: (_rowIndex, _col, _newVal, _originalVal) => {
-          updateSaveButtonVisibility();
+          syncPendingChangesUi();
           updateActionsVisibility();
           if (currentMode === 'review') {
             switchTab('review');
@@ -1097,10 +1502,281 @@ export const activate: ActivationFunction = (context) => {
             limit: 50,
           });
         },
+        onSortChange: (column, direction) => {
+          localSortState = { column, direction };
+          refreshStreamingScopeNotice();
+        },
+        onFilterChange: (state) => {
+          localFilterState = {
+            globalQuery: state.globalQuery || '',
+            clauses: state.clauses.map((c) => ({ ...c })),
+          };
+          refreshStreamingScopeNotice();
+        },
       });
 
       // Store for cleanup on disposal
       tableInstances.set(element, tableRenderer);
+
+      let slideFetchBusy = false;
+      let pendingSlideRequestId = '';
+      let pendingSlideTargetStart: number | undefined;
+      let suppressSlideScrollUntil = 0;
+      let slideScrollCleanup: (() => void) | undefined;
+      const DEFAULT_ROW_HEIGHT_PX = 30;
+      const getSlideWindowSize = (): number =>
+        Math.max(10, slideMeta?.windowSize ?? 100);
+      const getMaxBufferedRows = (): number => getSlideWindowSize() * 3;
+      const estimateDataRowHeight = (): number => {
+        const row = tableRenderer
+          .getScrollContainer()
+          .querySelector('tr[data-source-index]') as HTMLElement | null;
+        if (!row) {
+          return DEFAULT_ROW_HEIGHT_PX;
+        }
+        return Math.max(16, row.offsetHeight || DEFAULT_ROW_HEIGHT_PX);
+      };
+      const syncSlideMetaFromBuffer = (): void => {
+        if (!slideMeta?.sessionId) {
+          return;
+        }
+        slideMeta = {
+          sessionId: slideMeta.sessionId,
+          windowStartRow: slideBufferedStartRow,
+          windowSize: getSlideWindowSize(),
+          hasMoreBefore: slideHasMoreBefore,
+          hasMoreAfter: slideHasMoreAfter,
+        };
+      };
+
+      const attachSlideScroll = (): void => {
+        slideScrollCleanup?.();
+        slideScrollCleanup = undefined;
+        if (!slideMeta?.sessionId) {
+          return;
+        }
+        const root = tableRenderer.getScrollContainer();
+        let ticking = false;
+        const EDGE_PX = 72;
+        const onScroll = (): void => {
+          if (!slideMeta?.sessionId || slideFetchBusy) {
+            return;
+          }
+          if (Date.now() < suppressSlideScrollUntil) {
+            return;
+          }
+          if (ticking) {
+            return;
+          }
+          ticking = true;
+          requestAnimationFrame(() => {
+            ticking = false;
+            if (!slideMeta?.sessionId || slideFetchBusy) {
+              return;
+            }
+            const distBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
+            const distTop = root.scrollTop;
+            let nextStart: number | undefined;
+            if (slideHasMoreAfter && distBottom < EDGE_PX) {
+              nextStart = slideBufferedStartRow + currentRows.length;
+            } else if (slideHasMoreBefore && distTop < EDGE_PX) {
+              nextStart = Math.max(1, slideBufferedStartRow - getSlideWindowSize());
+            }
+            if (nextStart === undefined || nextStart === slideBufferedStartRow) {
+              return;
+            }
+            slideFetchBusy = true;
+            pendingSlideTargetStart = nextStart;
+            pendingSlideRequestId = `slide-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+            context.postMessage?.({
+              type: 'resultCursorFetch',
+              sessionId: slideMeta.sessionId,
+              pageStartRow: nextStart,
+              requestId: pendingSlideRequestId,
+            });
+          });
+        };
+        root.addEventListener('scroll', onScroll, { passive: true });
+        slideScrollCleanup = (): void => {
+          root.removeEventListener('scroll', onScroll);
+        };
+      };
+
+      applyCursorResponse = (message: any): void => {
+        if (pendingSlideRequestId && message.requestId !== pendingSlideRequestId) {
+          return;
+        }
+        const previousWindowStart = slideBufferedStartRow;
+        const requestedStart = pendingSlideTargetStart;
+        const rootBefore = tableRenderer.getScrollContainer();
+        const prevScrollTop = rootBefore.scrollTop;
+        const rowHeight = estimateDataRowHeight();
+        let scrollAdjustPx = 0;
+        slideFetchBusy = false;
+        pendingSlideRequestId = '';
+        pendingSlideTargetStart = undefined;
+        if (message.error) {
+          slideScrollCleanup?.();
+          slideScrollCleanup = undefined;
+          slideMeta = undefined;
+          mainContainer.insertBefore(
+            createInlineBanner({ severity: 'warning', message: String(message.error) }),
+            contentContainer,
+          );
+          refreshStreamingScopeNotice();
+          return;
+        }
+        const incomingRows = message.rows ? JSON.parse(JSON.stringify(message.rows)) : [];
+        const incomingOriginalRows = JSON.parse(JSON.stringify(incomingRows));
+        const movedForward =
+          typeof requestedStart === 'number' && requestedStart > previousWindowStart;
+        const movedBackward =
+          typeof requestedStart === 'number' && requestedStart < previousWindowStart;
+
+        if (!slideMeta?.sessionId || !requestedStart) {
+          currentRows = incomingRows;
+          originalRows = incomingOriginalRows;
+          slideBufferedStartRow = message.slidingWindow?.windowStartRow ?? slideBufferedStartRow;
+        } else if (movedForward) {
+          currentRows = [...currentRows, ...incomingRows];
+          originalRows = [...originalRows, ...incomingOriginalRows];
+        } else if (movedBackward) {
+          currentRows = [...incomingRows, ...currentRows];
+          originalRows = [...incomingOriginalRows, ...originalRows];
+          slideBufferedStartRow = requestedStart;
+          scrollAdjustPx += incomingRows.length * rowHeight;
+        } else {
+          currentRows = incomingRows;
+          originalRows = incomingOriginalRows;
+          slideBufferedStartRow = requestedStart;
+        }
+
+        const maxBufferedRows = getMaxBufferedRows();
+        if (currentRows.length > maxBufferedRows) {
+          const overflow = currentRows.length - maxBufferedRows;
+          if (movedForward) {
+            currentRows = currentRows.slice(overflow);
+            originalRows = originalRows.slice(overflow);
+            slideBufferedStartRow += overflow;
+            scrollAdjustPx -= overflow * rowHeight;
+          } else if (movedBackward) {
+            currentRows = currentRows.slice(0, currentRows.length - overflow);
+            originalRows = originalRows.slice(0, originalRows.length - overflow);
+          } else {
+            currentRows = currentRows.slice(0, maxBufferedRows);
+            originalRows = originalRows.slice(0, maxBufferedRows);
+          }
+        }
+
+        if (message.slidingWindow) {
+          if (movedForward) {
+            slideHasMoreAfter = message.slidingWindow.hasMoreAfter;
+          } else if (movedBackward) {
+            slideHasMoreBefore = message.slidingWindow.hasMoreBefore;
+          } else {
+            slideHasMoreBefore = message.slidingWindow.hasMoreBefore;
+            slideHasMoreAfter = message.slidingWindow.hasMoreAfter;
+          }
+          if (slideBufferedStartRow > 1) {
+            slideHasMoreBefore = true;
+          }
+          syncSlideMetaFromBuffer();
+        }
+        refreshStreamingScopeNotice();
+        selectedIndices.clear();
+        modifiedCells.clear();
+        rowsMarkedForDeletion.clear();
+        if (currentMode === 'table') {
+          tableRenderer.render(buildTableRenderOptions());
+        }
+        updateIdentityStats();
+        refreshResultFooter();
+        suppressSlideScrollUntil = Date.now() + 120;
+        requestAnimationFrame(() => {
+          const root = tableRenderer.getScrollContainer();
+          const nextScrollTop = Math.max(0, prevScrollTop + scrollAdjustPx);
+          root.scrollTop = nextScrollTop;
+        });
+      };
+
+      const rowToolHandlers: RowToolsOptions = {
+        onSelectAll: () => {
+          if (selectedIndices.size === currentRows.length && currentRows.length > 0) {
+            selectedIndices.clear();
+          } else {
+            currentRows.forEach((_: any, i: number) => selectedIndices.add(i));
+          }
+          tableRenderer.updateSelection(selectedIndices);
+          refreshResultFooter();
+        },
+        onCopy: () => {
+          const rowsToCopy =
+            selectedIndices.size > 0
+              ? Array.from(selectedIndices).map((i) => currentRows[i])
+              : currentRows;
+          const escapeCSV = (val: any): string => {
+            if (val === null || val === undefined) return '';
+            const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+              return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+          };
+          const csv = [
+            columns.map((c: string) => `"${c.replace(/"/g, '""')}"`).join(','),
+            ...rowsToCopy.map((r: any) => columns.map((c: string) => escapeCSV(r[c])).join(',')),
+          ].join('\n');
+          navigator.clipboard?.writeText(csv);
+        },
+        onImport: () => {
+          showImportModal(columns, tableInfo, context);
+        },
+        onExport: openResultExportMenu,
+      };
+
+      refreshResultFooter = () => {
+        if (json.error) return;
+        contentContainer.querySelector('[data-result-footer="true"]')?.remove();
+        const dirty = modifiedCells.size + rowsMarkedForDeletion.size;
+        const tableView = currentMode === 'table';
+        const sel = tableView ? selectedIndices.size : 0;
+        contentContainer.appendChild(
+          createResultFooter({
+            rowTools:
+              columns.length > 0
+                ? {
+                    ...rowToolHandlers,
+                    allRowsSelected:
+                      tableView &&
+                      currentRows.length > 0 &&
+                      selectedIndices.size === currentRows.length,
+                  }
+                : undefined,
+            onAddRow: tableInfo
+              ? () => {
+                  switchTab('table');
+                  requestAnimationFrame(() => tableRenderer.triggerAddRow());
+                }
+              : undefined,
+            dirtyCount: dirty,
+            onCommit: dirty > 0 ? performSave : undefined,
+            deleteSelectionCount: sel,
+            onDeleteSelected: sel > 0 && tableView ? markSelectedRowsForDeletion : undefined,
+            deleteUnavailableReason:
+              sel > 0 && !tableInfo?.primaryKeys
+                ? 'Warning: No primary keys detected. Deletion may fail.'
+                : undefined,
+            onRevert:
+              dirty > 0
+                ? () => {
+                    tableRenderer.revertAllPendingChanges();
+                    syncPendingChangesUi();
+                  }
+                : undefined,
+          }),
+        );
+        updateIdentityStats();
+      };
 
       // CHART RENDERER
       const chartCanvas = document.createElement('canvas');
@@ -1109,7 +1785,11 @@ export const activate: ActivationFunction = (context) => {
       // Store for cleanup on disposal
       chartInstances.set(element, chartRenderer);
 
-      const exportChartBtn = createButton('📷 Export Chart', true);
+      const exportChartBtn = document.createElement('button');
+      exportChartBtn.type = 'button';
+      fillToolbarButtonContent(exportChartBtn, 'chart', 'Export Chart');
+      applyResultRowToolStyle(exportChartBtn);
+      attachResultRowToolInteractions(exportChartBtn);
       exportChartBtn.style.display = 'none'; // Hidden by default
       exportChartBtn.onclick = () => {
         const dataUrl = chartRenderer.exportImage('png');
@@ -1120,7 +1800,8 @@ export const activate: ActivationFunction = (context) => {
           a.click();
         }
       };
-      leftActions.appendChild(exportChartBtn);
+      secondaryTabsRight.appendChild(exportChartBtn);
+      secondaryTabsRight.appendChild(createAiMenuButton(aiMenuCallbacks));
 
       const updateActionsVisibility = () => {
         if (currentMode === 'chart') {
@@ -1128,98 +1809,36 @@ export const activate: ActivationFunction = (context) => {
         } else {
           exportChartBtn.style.display = 'none';
         }
-
-        // Update Select All Button Text and delete button
-        if (currentMode === 'table') {
-          if (selectedIndices.size > 0) {
-            deleteBtn.style.display = 'inline-block';
-            deleteBtn.innerText = `🗑️ Delete (${selectedIndices.size})`;
-            if (!tableInfo?.primaryKeys) {
-              deleteBtn.title = 'Warning: No Primary Keys detected. Deletion may fail.';
-              deleteBtn.style.opacity = '0.7';
-            } else {
-              deleteBtn.title = 'Delete selected rows';
-              deleteBtn.style.opacity = '1';
-            }
-          } else {
-            deleteBtn.style.display = 'none';
-          }
-        } else {
-          deleteBtn.style.display = 'none';
-        }
-      };
-
-      deleteBtn.onclick = () => {
-        console.log('[renderer_v2] Delete button clicked!');
-        const selectedCount = selectedIndices.size;
-        console.log('[renderer_v2] selectedCount:', selectedCount);
-        if (selectedCount === 0) return;
-
-        // Mark selected rows for deletion
-        selectedIndices.forEach((index) => {
-          rowsMarkedForDeletion.add(index);
-        });
-
-        console.log('[renderer_v2] Rows marked for deletion:', Array.from(rowsMarkedForDeletion));
-
-        // Clear selection
-        selectedIndices.clear();
-
-        // Update save button visibility
-        updateSaveButtonVisibility();
-
-        // Re-render table to show strikethrough on marked rows
-        if (tableRenderer) {
-          tableRenderer.render({
-            columns,
-            rows: currentRows,
-            originalRows,
-            columnTypes,
-            tableInfo,
-            initialSelectedIndices: selectedIndices,
-            modifiedCells,
-            rowsMarkedForDeletion, // Pass to renderer for styling
-          });
-        }
-
-        // Update actions visibility
-        updateActionsVisibility();
+        refreshResultFooter();
       };
 
       // Switch Tab Logic
-      let currentMode = 'table';
-      const allTabs = () =>
-        explainTab
-          ? [tableTab, chartTab, analystTab, noticesTab, reviewTab!, explainTab, transposeTab]
-          : [tableTab, chartTab, analystTab, noticesTab, reviewTab!, transposeTab];
-      const setActiveTab = (activeTab: HTMLElement) => {
-        allTabs().forEach((t) => {
-          t.style.borderBottom = '2px solid transparent';
-          t.style.opacity = '0.6';
-        });
-        activeTab.style.borderBottom = '2px solid var(--vscode-focusBorder)';
-        activeTab.style.opacity = '1';
+
+      const setSecondaryActive = (mode: string | null) => {
+        applyResultViewTabStyle(noticesBtn, mode === 'notices');
+        applyResultViewTabStyle(transposeBtn, mode === 'transpose');
+        if (explainTabBtn) applyResultViewTabStyle(explainTabBtn, mode === 'explain');
+        syncReviewTabButton();
       };
 
-      const switchTab = (mode: string) => {
+      switchTab = (mode: string) => {
         currentMode = mode;
         viewContainer.innerHTML = '';
 
+        if (mode === 'table' || mode === 'chart' || mode === 'analyst') {
+          lastPrimaryMode = mode;
+          syncPrimaryButtons();
+          setSecondaryActive(null);
+        } else {
+          syncPrimaryButtons();
+          setSecondaryActive(mode);
+        }
+
         if (mode === 'table') {
-          setActiveTab(tableTab);
           updateActionsVisibility();
-          tableRenderer.render({
-            columns,
-            rows: currentRows,
-            originalRows,
-            columnTypes,
-            tableInfo,
-            foreignKeys: tableInfo?.foreignKeys,
-            initialSelectedIndices: selectedIndices,
-            modifiedCells,
-          });
+          tableRenderer.render(buildTableRenderOptions());
+          attachSlideScroll();
         } else if (mode === 'notices') {
-          setActiveTab(noticesTab);
           updateActionsVisibility();
           viewContainer.appendChild(
             renderNoticesPanel(noticeItems, {
@@ -1237,22 +1856,18 @@ export const activate: ActivationFunction = (context) => {
             }),
           );
         } else if (mode === 'transpose') {
-          setActiveTab(transposeTab);
           updateActionsVisibility();
-          const transposeEl = renderTransposeTable(columns, currentRows, (v: any) => {
-            if (v === null || v === undefined) return 'NULL';
-            if (typeof v === 'object') return JSON.stringify(v);
-            return String(v);
-          });
+          const transposeEl = renderTransposeTable(
+            columns,
+            currentRows,
+            columnTypes,
+            byteaDisplayFormat,
+          );
           viewContainer.appendChild(transposeEl);
         } else if (mode === 'review') {
-          setActiveTab(reviewTab || tableTab);
           updateActionsVisibility();
           viewContainer.appendChild(renderReviewChangesView());
         } else if (mode === 'explain') {
-          // Explain Mode
-          setActiveTab(explainTab || tableTab);
-
           updateActionsVisibility();
 
           const explainWrapper = document.createElement('div');
@@ -1271,18 +1886,52 @@ export const activate: ActivationFunction = (context) => {
               'No explain plan data available. Run EXPLAIN (ANALYZE, FORMAT JSON) to get a visual plan.';
           }
         } else if (mode === 'analyst') {
-          setActiveTab(analystTab);
           updateActionsVisibility();
+          const streamingHint = createAnalyticsStreamingWarning('Analyst');
+          if (streamingHint) {
+            viewContainer.appendChild(streamingHint);
+          }
           viewContainer.appendChild(
             renderAnalystPanel({
               columns,
               rows: currentRows,
               columnTypes,
+              isStreaming: !!slideMeta?.sessionId,
+              onAskAiForPivotHelp: (pivotCtx) => {
+                const sqlText = (buildFullDatasetRerunQuery() || exportQuery || query || '').trim();
+                context.postMessage?.({
+                  type: 'sendToChat',
+                  data: {
+                    query: sqlText || query || '',
+                    message: buildPivotOptimizeUserMessage(pivotCtx, sqlText || query || ''),
+                  },
+                });
+              },
+              onRunFullDataset: () => {
+                const rerunQuery = buildFullDatasetRerunQuery();
+                if (!rerunQuery) {
+                  context.postMessage?.({
+                    type: 'showErrorMessage',
+                    message: 'No query available to rerun for full dataset.',
+                  });
+                  return;
+                }
+                context.postMessage?.({
+                  type: 'runDerivedQuery',
+                  query: rerunQuery,
+                  source: 'streaming-analyst-pivot-full-dataset',
+                  fullDataset: true,
+                });
+              },
             }),
           );
         } else {
-          setActiveTab(chartTab);
+          // chart
           updateActionsVisibility();
+          const streamingHint = createAnalyticsStreamingWarning('Chart');
+          if (streamingHint) {
+            viewContainer.appendChild(streamingHint);
+          }
 
           const chartWrapper = document.createElement('div');
           chartWrapper.style.cssText =
@@ -1290,7 +1939,7 @@ export const activate: ActivationFunction = (context) => {
 
           const controlsContainer = document.createElement('div');
           controlsContainer.style.cssText =
-            'width: 140px; min-width: 140px; max-width: 140px; display: flex; flex-direction: column;';
+            'width: 20%; min-width: 160px; max-width: 240px; display: flex; flex-direction: column; border-right: 1px solid var(--vscode-widget-border);';
 
           const canvasContainer = document.createElement('div');
           canvasContainer.style.cssText =
@@ -1299,8 +1948,8 @@ export const activate: ActivationFunction = (context) => {
 
           const innerContainer = document.createElement('div');
           innerContainer.style.cssText = 'display: flex; flex: 1; overflow: hidden; height: 100%;';
-          innerContainer.appendChild(canvasContainer);
           innerContainer.appendChild(controlsContainer);
+          innerContainer.appendChild(canvasContainer);
           chartWrapper.appendChild(innerContainer);
 
           viewContainer.appendChild(chartWrapper);
@@ -1313,6 +1962,80 @@ export const activate: ActivationFunction = (context) => {
             },
           });
         }
+        refreshResultFooter();
+      };
+
+      showOverflowMenu = (anchorEl: HTMLElement) => {
+        const existing = document.querySelector('.result-overflow-menu');
+        if (existing) {
+          existing.remove();
+          return;
+        }
+
+        const menu = document.createElement('div');
+        menu.className = 'result-overflow-menu';
+        menu.style.cssText =
+          'position:fixed;background:var(--vscode-menu-background);border:1px solid var(--vscode-menu-border);box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:1000;min-width:170px;border-radius:4px;padding:3px 0;';
+
+        const addItem = (label: string, onClick: () => void) => {
+          const item = document.createElement('div');
+          item.textContent = label;
+          item.style.cssText =
+            'padding:6px 14px;cursor:pointer;color:var(--vscode-menu-foreground);font-size:12px;font-family:var(--vscode-font-family);';
+          item.onmouseenter = () => {
+            item.style.background = 'var(--vscode-menu-selectionBackground)';
+            item.style.color = 'var(--vscode-menu-selectionForeground)';
+          };
+          item.onmouseleave = () => {
+            item.style.background = 'transparent';
+            item.style.color = 'var(--vscode-menu-foreground)';
+          };
+          item.onclick = (e) => {
+            e.stopPropagation();
+            onClick();
+            menu.remove();
+          };
+          menu.appendChild(item);
+        };
+
+        addItem('⇄ Transpose', () => switchTab('transpose'));
+        if (noticeItems.length > 0) {
+          addItem(`Notices (${noticeItems.length})`, () => switchTab('notices'));
+        }
+        if (json.explainPlan) {
+          addItem('Explain Plan', () => switchTab('explain'));
+        }
+        if (breadcrumb?.connectionName) {
+          addItem('Switch connection…', () =>
+            context.postMessage?.({
+              type: 'showConnectionSwitcher',
+              connectionId: breadcrumb.connectionId,
+            }),
+          );
+        }
+        if (breadcrumb?.database) {
+          addItem('Switch database…', () =>
+            context.postMessage?.({
+              type: 'showDatabaseSwitcher',
+              connectionId: breadcrumb.connectionId,
+              currentDatabase: breadcrumb.database,
+            }),
+          );
+        }
+
+        document.body.appendChild(menu);
+        const rect = anchorEl.getBoundingClientRect();
+        menu.style.top = `${rect.bottom + 4}px`;
+        const mw = 200;
+        menu.style.left = `${Math.max(8, Math.min(rect.right - mw, window.innerWidth - mw - 8))}px`;
+
+        setTimeout(() => {
+          const close = () => {
+            menu.remove();
+            document.removeEventListener('click', close);
+          };
+          document.addEventListener('click', close);
+        }, 0);
       };
 
       // Initial Render
@@ -1354,12 +2077,151 @@ export const activate: ActivationFunction = (context) => {
           originalRows: entry.rows || [],
           columnTypes: entry.columnTypes,
           tableInfo: entry.tableInfo,
+          byteaDisplayFormat: entry.byteaDisplayFormat ?? BYTEA_DISPLAY_DEFAULT,
         });
         element.appendChild(histTableContainer);
       });
       if (tabStripEl) element.appendChild(tabStripEl);
 
-      element.appendChild(mainContainer);
+      const outputRoot = document.createElement('div');
+      outputRoot.setAttribute('data-pg-output-hover-root', 'true');
+      outputRoot.style.cssText = 'position:relative;';
+
+      const hoverToolbar = document.createElement('div');
+      hoverToolbar.setAttribute('role', 'toolbar');
+      hoverToolbar.setAttribute('aria-label', 'Result quick actions');
+      hoverToolbar.style.cssText = `
+        position:absolute;
+        top:10px;
+        right:12px;
+        z-index:35;
+        display:flex;
+        flex-wrap:wrap;
+        justify-content:flex-end;
+        align-items:center;
+        gap:6px;
+        max-width:min(420px, calc(100% - 20px));
+        opacity:0;
+        pointer-events:none;
+        transition:opacity 0.18s ease;
+        padding:5px 8px;
+        border-radius:10px;
+        background:color-mix(in srgb, var(--vscode-editor-background) 86%, transparent);
+        border:1px solid color-mix(in srgb, var(--vscode-widget-border) 42%, transparent);
+        box-shadow:0 4px 18px rgba(0,0,0,0.1);
+        backdrop-filter:blur(10px);
+      `;
+      if (prefersReducedMotion()) {
+        hoverToolbar.style.transition = 'none';
+      }
+
+      const setToolbarVisible = (v: boolean): void => {
+        hoverToolbar.style.opacity = v ? '1' : '0';
+        hoverToolbar.style.pointerEvents = v ? 'auto' : 'none';
+      };
+      outputRoot.addEventListener('mouseenter', () => setToolbarVisible(true));
+      outputRoot.addEventListener('mouseleave', () => setToolbarVisible(false));
+      outputRoot.addEventListener('focusin', () => setToolbarVisible(true));
+      outputRoot.addEventListener('focusout', (e) => {
+        const next = e.relatedTarget as Node | null;
+        if (next && outputRoot.contains(next)) {
+          return;
+        }
+        setToolbarVisible(false);
+      });
+
+      const addHoverTool = (
+        glyph: ResultToolbarGlyph,
+        label: string,
+        onClick: () => void,
+        opts?: { disabled?: boolean; title?: string },
+      ): void => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        fillOutputHoverToolButton(btn, glyph, label);
+        const title = opts?.title ?? label;
+        btn.title = title;
+        btn.setAttribute('aria-label', title);
+        if (opts?.disabled) {
+          btn.disabled = true;
+          btn.style.opacity = '0.42';
+          btn.style.cursor = 'not-allowed';
+        }
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (btn.disabled) {
+            return;
+          }
+          onClick();
+        });
+        hoverToolbar.appendChild(btn);
+      };
+
+      const queryTrimmed = (query || '').trim();
+      const cellLinked = sourceCellIndex >= 0;
+
+      addHoverTool(
+        'menuBolt',
+        'Optimize',
+        () => {
+          aiMenuCallbacks.onOptimize();
+        },
+        {
+          disabled: !queryTrimmed,
+          title: queryTrimmed ? 'Suggest optimizations for this query' : 'No query text',
+        },
+      );
+      addHoverTool(
+        'sparkles',
+        'Ask AI',
+        () => {
+          context.postMessage?.({
+            type: 'notebookOutputToolbar',
+            action: 'aiAssist',
+            cellIndex: sourceCellIndex,
+          });
+        },
+        {
+          disabled: !cellLinked,
+          title: cellLinked
+            ? 'Ask AI to modify this query'
+            : 'Re-run the cell to link actions to the source cell',
+        },
+      );
+      addHoverTool(
+        'save',
+        'Save',
+        () => {
+          context.postMessage?.({
+            type: 'notebookOutputToolbar',
+            action: 'saveQuery',
+            cellIndex: sourceCellIndex,
+          });
+        },
+        {
+          disabled: !cellLinked,
+          title: cellLinked ? 'Save query to library' : 'Re-run the cell to link actions to the source cell',
+        },
+      );
+      addHoverTool(
+        'expandCell',
+        'Expand',
+        () => {
+          context.postMessage?.({
+            type: 'notebookOutputToolbar',
+            action: 'expand',
+            cellIndex: sourceCellIndex,
+          });
+        },
+        {
+          disabled: !cellLinked,
+          title: cellLinked ? 'Focus the SQL cell in the editor' : 'Re-run the cell to link actions to the source cell',
+        },
+      );
+
+      outputRoot.appendChild(mainContainer);
+      outputRoot.appendChild(hoverToolbar);
+      element.appendChild(outputRoot);
 
       // Transaction state: show banner and amber gutter
       ensureAmberGutterStyle();

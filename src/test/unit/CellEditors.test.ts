@@ -5,6 +5,7 @@ describe('getEditorType', () => {
   const cases: { type: string; value: unknown; expected: ReturnType<typeof getEditorType> }[] = [
     { type: 'jsonb', value: {}, expected: 'json' },
     { type: 'varchar', value: 'hi', expected: 'longtext' },
+    { type: 'varchar', value: 'x'.repeat(501), expected: 'longtext' },
     { type: 'text', value: '', expected: 'longtext' },
     { type: 'xml', value: '<a/>', expected: 'longtext' },
     { type: 'interval', value: '1 day', expected: 'longtext' },
@@ -13,7 +14,7 @@ describe('getEditorType', () => {
     { type: 'box', value: '(1,1),(0,0)', expected: 'longtext' },
     { type: 'line', value: '{1,2,3}', expected: 'longtext' },
     { type: 'varchar(64)', value: 'x', expected: 'longtext' },
-    { type: 'numeric(10,2)', value: '1.00', expected: 'longtext' },
+    { type: 'numeric(10,2)', value: '1.00', expected: 'number' },
     { type: 'int4range', value: '[1,10)', expected: 'longtext' },
     { type: 'bytea', value: '\\xdead', expected: 'longtext' },
     { type: 'uuid', value: '00000000-0000-0000-0000-000000000000', expected: 'longtext' },
@@ -21,7 +22,10 @@ describe('getEditorType', () => {
     { type: 'oid:12345', value: 'enum_val', expected: 'longtext' },
     { type: 'int4', value: 1, expected: 'number' },
     { type: 'unknown', value: 'x'.repeat(201), expected: 'longtext' },
-    { type: '', value: 'short', expected: 'text' },
+    { type: '', value: 'short', expected: 'longtext' },
+    { type: 'bool', value: true, expected: 'boolean' },
+    { type: 'date', value: '2024-01-01', expected: 'date' },
+    { type: 'timestamp', value: '2024-01-01T00:00:00Z', expected: 'datetime' },
   ];
 
   cases.forEach(({ type, value, expected }) => {

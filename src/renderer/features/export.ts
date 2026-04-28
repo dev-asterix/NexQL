@@ -1,4 +1,72 @@
-import { createButton } from '../components/ui';
+import {
+  RESULT_TOOLBAR_ICON_CLASS,
+  RESULT_TOOLBAR_LABEL_CLASS,
+  attachResultRowToolInteractions,
+  applyResultRowToolStyle,
+  fillToolbarButtonContent,
+  resultToolbarSvg,
+} from '../components/ResultToolbarUi';
+
+/** Update label span on toolbar-style buttons (Export footer, etc.). */
+export function setExportToolbarButtonLabel(btn: HTMLButtonElement, label: string): void {
+  const tx = btn.querySelector(`.${RESULT_TOOLBAR_LABEL_CLASS}`);
+  if (tx) tx.textContent = label;
+}
+
+/** Prefer above anchor — notebook/output below often stacks over `position:fixed` menus (export footer). */
+export const EXPORT_MENU_Z_INDEX = '2147483646';
+
+export type DropdownPlacementPreference = 'above' | 'below';
+
+/**
+ * Place a fixed menu relative to its anchor.
+ * `above`: default for footer Export — avoids overlapping the next notebook cell below.
+ * `below`: use for toolbar controls (e.g. Ask AI) so the menu isn’t clipped by cells above.
+ */
+export function positionExportDropdown(
+  menu: HTMLElement,
+  anchor: HTMLElement,
+  preference: DropdownPlacementPreference = 'above',
+): void {
+  menu.style.position = 'fixed';
+  menu.style.zIndex = EXPORT_MENU_Z_INDEX;
+
+  const rect = anchor.getBoundingClientRect();
+  const mw = menu.offsetWidth || menu.getBoundingClientRect().width;
+  const mh = menu.offsetHeight || menu.getBoundingClientRect().height;
+  const vp = 8;
+
+  let top: number;
+  if (preference === 'below') {
+    top = rect.bottom + 4;
+    if (top + mh > window.innerHeight - vp) {
+      const aboveTop = rect.top - mh - 4;
+      if (aboveTop >= vp) {
+        top = aboveTop;
+      } else {
+        top = Math.max(vp, Math.min(rect.bottom + 4, window.innerHeight - mh - vp));
+      }
+    }
+  } else {
+    top = rect.top - mh - 4;
+    if (top < vp) {
+      top = rect.bottom + 4;
+    }
+    const maxTop = window.innerHeight - mh - vp;
+    if (top > maxTop) {
+      top = Math.max(vp, maxTop);
+    }
+  }
+
+  let left = rect.left;
+  if (left + mw > window.innerWidth - vp) {
+    left = window.innerWidth - mw - vp;
+  }
+  left = Math.max(vp, left);
+
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
 
 export const createExportButton = (
   columns: string[],
@@ -7,7 +75,16 @@ export const createExportButton = (
   context?: { postMessage?: (msg: any) => void },
   originalQuery?: string
 ) => {
-  const exportBtn = createButton('Export ▼', true);
+  const exportBtn = document.createElement('button');
+  exportBtn.type = 'button';
+  fillToolbarButtonContent(exportBtn, 'export', 'Export');
+  const chev = document.createElement('span');
+  chev.className = RESULT_TOOLBAR_ICON_CLASS;
+  chev.style.opacity = '0.72';
+  chev.innerHTML = resultToolbarSvg('chevronDown');
+  exportBtn.appendChild(chev);
+  applyResultRowToolStyle(exportBtn);
+  attachResultRowToolInteractions(exportBtn);
   exportBtn.style.position = 'relative';
 
   exportBtn.addEventListener('click', (e: MouseEvent) => {
@@ -26,7 +103,7 @@ export const createExportButton = (
     menu.style.background = 'var(--vscode-menu-background)';
     menu.style.border = '1px solid var(--vscode-menu-border)';
     menu.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-    menu.style.zIndex = '1000';
+    menu.style.zIndex = EXPORT_MENU_Z_INDEX;
     menu.style.minWidth = '150px';
     menu.style.borderRadius = '3px';
     menu.style.padding = '4px 0';
@@ -180,16 +257,16 @@ export const createExportButton = (
     if (tableInfo) {
       menu.appendChild(createMenuItem('Copy SQL INSERT', () => {
         navigator.clipboard.writeText(getSQLInsert()).then(() => {
-          exportBtn.textContent = 'Copied!';
-          setTimeout(() => exportBtn.textContent = 'Export ▼', 2000);
+          setExportToolbarButtonLabel(exportBtn, 'Copied!');
+          setTimeout(() => setExportToolbarButtonLabel(exportBtn, 'Export'), 2000);
         });
       }));
     }
 
     menu.appendChild(createMenuItem('Copy to Clipboard', () => {
       navigator.clipboard.writeText(getCSV()).then(() => {
-        exportBtn.textContent = 'Copied!';
-        setTimeout(() => exportBtn.textContent = 'Export ▼', 2000);
+        setExportToolbarButtonLabel(exportBtn, 'Copied!');
+        setTimeout(() => setExportToolbarButtonLabel(exportBtn, 'Export'), 2000);
       });
     }));
 
@@ -201,7 +278,7 @@ export const createExportButton = (
       divider.style.margin = '4px 8px';
       menu.appendChild(divider);
 
-      menu.appendChild(createMenuItem('📥 Export All Data (via kernel)', () => {
+      menu.appendChild(createMenuItem('Export all data (via kernel)', () => {
         context.postMessage!({
           type: 'export_request',
           rows: rows,
@@ -213,26 +290,7 @@ export const createExportButton = (
 
     document.body.appendChild(menu);
 
-    const buttonRect = exportBtn.getBoundingClientRect();
-    const menuWidth = Math.max(180, menu.getBoundingClientRect().width || 180);
-    const menuHeight = menu.getBoundingClientRect().height || 0;
-    const viewportPadding = 8;
-    const spaceBelow = window.innerHeight - buttonRect.bottom - viewportPadding;
-    const spaceAbove = buttonRect.top - viewportPadding;
-
-    let top = buttonRect.bottom + 4;
-    if (menuHeight > 0 && spaceBelow < menuHeight && spaceAbove > spaceBelow) {
-      top = Math.max(viewportPadding, buttonRect.top - menuHeight - 4);
-    }
-
-    let left = buttonRect.left;
-    if (left + menuWidth > window.innerWidth - viewportPadding) {
-      left = window.innerWidth - menuWidth - viewportPadding;
-    }
-    left = Math.max(viewportPadding, left);
-
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
+    positionExportDropdown(menu, exportBtn);
     menu.style.visibility = 'visible';
 
     // Close menu when clicking outside

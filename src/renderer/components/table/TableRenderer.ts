@@ -1,6 +1,14 @@
 import { createButton } from '../ui';
-import { formatValue } from '../../utils/formatting';
-import { TableInfo, TableRenderOptions, FkColumnInfo, FilterState } from '../../../common/types';
+import { columnTypeSupportsPrettyPreview, formatValue } from '../../utils/formatting';
+import { RESULT_TOOLBAR_ICON_CLASS, resultToolbarSvg } from '../ResultToolbarUi';
+import {
+  TableInfo,
+  TableRenderOptions,
+  FkColumnInfo,
+  FilterState,
+  BYTEA_DISPLAY_DEFAULT,
+  ByteaDisplayFormat,
+} from '../../../common/types';
 import { createCellEditor } from './CellEditors';
 import { FilterBar } from './FilterBar';
 import { ColumnStatsTooltip, attachColumnStatsTooltip } from '../ColumnStats';
@@ -54,7 +62,6 @@ export class TableRenderer {
   private selectedIndices: Set<number> = new Set();
   private modifiedCells: Map<string, { originalValue: any; newValue: any }> = new Map();
   private rowsMarkedForDeletion: Set<number> = new Set();
-  private dateTimeDisplayMode: Map<string, boolean> = new Map();
   private pendingInserts: PendingInsertRow[] = [];
 
   // Sort & filter state
@@ -65,6 +72,17 @@ export class TableRenderer {
   // UI sub-components
   private filterBar: FilterBar | null = null;
   private statsTooltip: ColumnStatsTooltip | null = null;
+
+  private byteaDisplayFormat: ByteaDisplayFormat = BYTEA_DISPLAY_DEFAULT;
+
+  /** First visible row label (1-based); used with sliding-window results for absolute # column. */
+  private rowNumberBaseline = 1;
+
+  /** Columns using locale / indented “pretty” cell display (header eye toggle). */
+  private columnPrettyPreview = new Set<string>();
+
+  /** Set `true` to show the header eye toggle again (logic below stays wired). */
+  private static readonly SHOW_COLUMN_PREVIEW_HEADER_TOGGLE = false;
 
   private renderedCount = 0;
   private readonly CHUNK_SIZE = 50;
@@ -116,6 +134,11 @@ export class TableRenderer {
     this.columnTypes = options.columnTypes || {};
     this.tableInfo = options.tableInfo;
     this.foreignKeys = options.foreignKeys || [];
+    this.byteaDisplayFormat = options.byteaDisplayFormat ?? BYTEA_DISPLAY_DEFAULT;
+    this.rowNumberBaseline =
+      typeof options.rowNumberBaseline === 'number' && Number.isFinite(options.rowNumberBaseline)
+        ? Math.max(1, Math.floor(options.rowNumberBaseline))
+        : 1;
     this.selectedIndices = options.initialSelectedIndices
       ? new Set(options.initialSelectedIndices)
       : new Set();
@@ -169,7 +192,6 @@ export class TableRenderer {
       columns: this.columns,
       rows: this.rows,
       filterState: this.filterState,
-      onAddRow: () => this.addPendingRow(),
       onFilterChange: (state) => {
         this.filterState = this.cloneFilterState(state);
         this.events.onFilterChange?.(state);
@@ -193,6 +215,31 @@ export class TableRenderer {
       this.setupInfiniteScroll();
     }
     this.maybeAppendFilterEmptyHint();
+  }
+
+  /** Used by the result footer and other host UI to start a new row. */
+  public triggerAddRow() {
+    this.addPendingRow();
+  }
+
+  /** Discard unstaged edits and staged deletions; restore displayed values from originalRows. */
+  public revertAllPendingChanges(): void {
+    this.cleanupInlineEditors();
+    this.modifiedCells.clear();
+    this.rowsMarkedForDeletion.clear();
+    this.currentlyEditingCell = null;
+    const n = Math.min(this.rows.length, this.originalRows.length);
+    for (let i = 0; i < n; i++) {
+      const row = this.rows[i];
+      const orig = this.originalRows[i];
+      if (!row || !orig) {
+        continue;
+      }
+      for (const col of this.columns) {
+        row[col] = orig[col];
+      }
+    }
+    this.rerenderTable();
   }
 
   private addPendingRow() {
@@ -407,52 +454,54 @@ export class TableRenderer {
     const th = document.createElement('th');
     th.setAttribute('data-sortable', 'true');
     th.setAttribute('scope', 'col');
+
+    const colType = this.columnTypes[col] ?? '';
+    const isNumeric = this.isNumericColumn(col);
+
     th.style.cssText = `
-      text-align:left;padding:8px 12px;
+      text-align:left;padding:0;
       border-bottom:1px solid var(--vscode-widget-border);
       border-right:1px solid var(--vscode-widget-border);
-      font-weight:600;color:var(--vscode-editor-foreground);
       position:sticky;top:0;background:var(--vscode-editor-background);
       z-index:10;user-select:none;max-width:400px;cursor:pointer;
+      ${isNumeric ? 'text-align:right;' : ''}
     `;
 
-    const container = document.createElement('div');
-    container.style.cssText =
-      'display:flex;justify-content:space-between;align-items:center;gap:4px;';
-
-    const leftSide = document.createElement('div');
-    leftSide.style.cssText = 'display:flex;align-items:center;gap:4px;overflow:hidden;';
+    // Name row
+    const nameRow = document.createElement('div');
+    nameRow.style.cssText = `
+      display:flex;align-items:center;gap:4px;overflow:hidden;
+      padding:5px 10px 2px;
+      ${isNumeric ? 'flex-direction:row-reverse;' : ''}
+    `;
 
     if (this.tableInfo?.primaryKeys?.includes(col)) {
       const pkIcon = document.createElement('span');
       pkIcon.textContent = '⚿';
       pkIcon.title = 'Primary Key';
-      pkIcon.style.cssText =
-        'color:var(--vscode-textLink-foreground);font-size:12px;flex-shrink:0;';
-      leftSide.appendChild(pkIcon);
+      pkIcon.setAttribute('aria-label', 'Primary Key');
+      pkIcon.style.cssText = 'color:var(--vscode-textLink-foreground);font-size:11px;flex-shrink:0;';
+      nameRow.appendChild(pkIcon);
     }
 
-    // FK icon
     if (this.foreignKeys.some((fk) => fk.column === col)) {
       const fkIcon = document.createElement('span');
-      fkIcon.textContent = '🔗';
+      fkIcon.textContent = '↗';
       fkIcon.title = 'Foreign Key';
-      fkIcon.style.cssText = 'font-size:10px;flex-shrink:0;';
-      leftSide.appendChild(fkIcon);
+      fkIcon.setAttribute('aria-label', 'Foreign Key');
+      fkIcon.style.cssText = 'font-size:10px;opacity:0.6;flex-shrink:0;';
+      nameRow.appendChild(fkIcon);
     }
 
     const colName = document.createElement('span');
     colName.textContent = col;
-    colName.style.cssText = 'overflow:hidden;text-overflow:ellipsis;';
-    leftSide.appendChild(colName);
-    container.appendChild(leftSide);
+    colName.style.cssText = 'overflow:hidden;text-overflow:ellipsis;font-weight:600;font-size:12px;color:var(--vscode-editor-foreground);';
+    nameRow.appendChild(colName);
 
-    const rightSide = document.createElement('div');
-    rightSide.style.cssText = 'display:flex;align-items:center;gap:4px;flex-shrink:0;';
-
-    // Sort indicator
+    // Sort indicator (pushed to end)
     const sortIcon = document.createElement('span');
-    sortIcon.style.cssText = 'font-size:10px;opacity:0.5;';
+    sortIcon.setAttribute('aria-hidden', 'true');
+    sortIcon.style.cssText = 'font-size:9px;opacity:0.5;margin-left:auto;flex-shrink:0;';
     if (this.sortColumn === col) {
       sortIcon.textContent = this.sortDirection === 'asc' ? '▲' : '▼';
       sortIcon.style.opacity = '1';
@@ -460,21 +509,110 @@ export class TableRenderer {
     } else {
       sortIcon.textContent = '⇅';
     }
-    rightSide.appendChild(sortIcon);
+    nameRow.appendChild(sortIcon);
 
-    if (this.columnTypes[col]) {
-      const typeBadge = document.createElement('span');
-      typeBadge.textContent = this.columnTypes[col];
-      typeBadge.style.cssText = `
-        font-size:10px;font-family:var(--vscode-editor-font-family),monospace;
-        color:var(--vscode-descriptionForeground);margin-left:4px;
-      `;
-      rightSide.appendChild(typeBadge);
+    // Type row: type label + optional preview toggle (eye), aligned with sort edge
+    const typeRow = document.createElement('div');
+    typeRow.style.cssText = `
+      display:flex;
+      align-items:center;
+      gap:4px;
+      padding:0 10px 4px;
+      font-size:10px;
+      font-family:var(--vscode-editor-font-family),monospace;
+      color:var(--vscode-descriptionForeground);
+      opacity:0.75;
+      min-height:20px;
+    `;
+
+    const typeLabel = document.createElement('span');
+    typeLabel.style.cssText = `
+      flex:1;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      ${isNumeric ? 'text-align:right;' : ''}
+    `;
+    typeLabel.textContent = colType;
+
+    const showPreviewToggle =
+      TableRenderer.SHOW_COLUMN_PREVIEW_HEADER_TOGGLE &&
+      Boolean(colType) &&
+      columnTypeSupportsPrettyPreview(colType);
+
+    let previewBtn: HTMLButtonElement | undefined;
+    if (TableRenderer.SHOW_COLUMN_PREVIEW_HEADER_TOGGLE) {
+      previewBtn = document.createElement('button');
+      previewBtn.type = 'button';
+      previewBtn.title = 'Toggle prettified preview for this column';
+      previewBtn.setAttribute('aria-label', 'Toggle prettified preview');
+      previewBtn.style.cssText = `
+      flex-shrink:0;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:22px;
+      height:22px;
+      padding:0;
+      border:none;
+      border-radius:4px;
+      background:transparent;
+      color:var(--vscode-descriptionForeground);
+      cursor:pointer;
+      opacity:0.55;
+    `;
+      const previewIc = document.createElement('span');
+      previewIc.className = RESULT_TOOLBAR_ICON_CLASS;
+      previewIc.innerHTML = resultToolbarSvg('previewEye');
+      previewBtn.appendChild(previewIc);
+
+      const syncPreviewBtn = () => {
+        const on = this.columnPrettyPreview.has(col);
+        previewBtn!.setAttribute('aria-pressed', on ? 'true' : 'false');
+        previewBtn!.style.opacity = on ? '1' : '0.55';
+        previewBtn!.style.color = on ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)';
+      };
+      syncPreviewBtn();
+
+      previewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.columnPrettyPreview.has(col)) {
+          this.columnPrettyPreview.delete(col);
+        } else {
+          this.columnPrettyPreview.add(col);
+        }
+        syncPreviewBtn();
+        this.rerenderTable();
+      });
+
+      previewBtn.addEventListener('mouseenter', () => {
+        previewBtn!.style.background =
+          'color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 55%, transparent)';
+      });
+      previewBtn.addEventListener('mouseleave', () => {
+        previewBtn!.style.background = 'transparent';
+      });
     }
-    container.appendChild(rightSide);
-    th.appendChild(container);
 
-    // Sort click handler — cycles none → asc → desc → none
+    if (!colType) {
+      typeRow.style.display = 'none';
+    } else if (showPreviewToggle && previewBtn) {
+      if (isNumeric) {
+        typeRow.appendChild(previewBtn);
+        typeRow.appendChild(typeLabel);
+      } else {
+        typeRow.appendChild(typeLabel);
+        typeRow.appendChild(previewBtn);
+      }
+    } else {
+      typeRow.appendChild(typeLabel);
+    }
+
+    th.appendChild(nameRow);
+    th.appendChild(typeRow);
+
+    // Sort click handler
     th.addEventListener('click', () => {
       if (this.sortColumn === col) {
         if (this.sortDirection === 'none') {
@@ -494,41 +632,6 @@ export class TableRenderer {
       this.rerenderTable();
     });
 
-    // DateTime toggle row
-    if (this.columnTypes[col]) {
-      const lowerType = this.columnTypes[col].toLowerCase();
-      const isDateTime =
-        lowerType.includes('timestamp') ||
-        lowerType === 'timestamptz' ||
-        lowerType === 'date' ||
-        lowerType === 'time' ||
-        lowerType === 'timetz';
-      if (isDateTime) {
-        if (!this.dateTimeDisplayMode.has(col)) {
-          this.dateTimeDisplayMode.set(col, false);
-        }
-        const toggleRow = document.createElement('div');
-        toggleRow.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:2px;';
-        const toggle = document.createElement('button');
-        const isFormatted = this.dateTimeDisplayMode.get(col);
-        toggle.textContent = isFormatted ? '📆' : '#';
-        toggle.title = isFormatted
-          ? 'Showing formatted — click for raw'
-          : 'Showing raw — click for formatted';
-        toggle.style.cssText = `
-          background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);
-          border:none;border-radius:3px;padding:1px 4px;cursor:pointer;font-size:10px;line-height:1;
-        `;
-        toggle.onclick = (e) => {
-          e.stopPropagation();
-          this.dateTimeDisplayMode.set(col, !isFormatted);
-          this.rerenderTable();
-        };
-        toggleRow.appendChild(toggle);
-        th.appendChild(toggleRow);
-      }
-    }
-
     // Attach column stats tooltip (hover with delay)
     if (this.statsTooltip) {
       attachColumnStatsTooltip(th, col, () => this.displayRows, this.statsTooltip, 600);
@@ -542,6 +645,13 @@ export class TableRenderer {
 
     this.addResizeHandle(th);
     return th;
+  }
+
+  /** Returns true if the column's pg type is numeric. */
+  private isNumericColumn(col: string): boolean {
+    // Strip leading '_' — PG array types are prefixed (e.g. _int4 for integer[])
+    const t = (this.columnTypes[col] ?? '').toLowerCase().replace(/^_/, '');
+    return /^(int|int2|int4|int8|float|float4|float8|numeric|decimal|double|real|bigint|smallint|serial|bigserial|money)/.test(t);
   }
 
   private addResizeHandle(th: HTMLElement) {
@@ -670,7 +780,7 @@ export class TableRenderer {
 
     // Row number cell
     const selectTd = document.createElement('td');
-    selectTd.textContent = String(displayIndex + 1);
+    selectTd.textContent = String(this.rowNumberBaseline + displayIndex);
     selectTd.style.cssText = `
       border-bottom:1px solid var(--vscode-widget-border);
       border-right:1px solid var(--vscode-widget-border);
@@ -796,15 +906,6 @@ export class TableRenderer {
     const td = document.createElement('td');
     const val = row[col];
     const colType = this.columnTypes[col];
-    let { text, type } = formatValue(val, colType);
-
-    const isDateTime = type === 'date' || type === 'timestamp' || type === 'time';
-    if (isDateTime) {
-      const isFormatted = this.dateTimeDisplayMode.get(col) ?? false;
-      if (!isFormatted) {
-        text = val !== null && val !== undefined ? String(val) : 'NULL';
-      }
-    }
 
     td.style.cssText = `
       padding:6px 12px;
@@ -839,14 +940,81 @@ export class TableRenderer {
 
     this.applyModifiedCellDecoration(td, sourceIndex, col);
 
+    // Right-align numeric columns
+    if (this.isNumericColumn(col)) {
+      td.style.textAlign = 'right';
+    }
+
     if (val === null || val === undefined) {
-      const nullSpan = document.createElement('span');
-      nullSpan.textContent = 'NULL';
-      nullSpan.style.cssText =
-        'color:var(--vscode-descriptionForeground);font-style:italic;opacity:0.6;';
-      td.appendChild(nullSpan);
+      const pill = document.createElement('span');
+      pill.textContent = '[null]';
+      pill.setAttribute('aria-label', 'NULL');
+      pill.style.cssText = `
+        display:inline-block;
+        font-family:var(--vscode-editor-font-family),monospace;
+        font-size:11px;
+        font-weight:500;
+        color:var(--vscode-descriptionForeground);
+        opacity:0.45;
+        vertical-align:middle;
+      `;
+      td.appendChild(pill);
+      td.style.verticalAlign = 'middle';
     } else {
-      td.textContent = text;
+      const prettyPreview = this.columnPrettyPreview.has(col);
+      const { kind, text: formattedText } = formatValue(val, colType, {
+        byteaDisplayFormat: this.byteaDisplayFormat,
+        prettyPreview,
+      });
+
+      const multilinePretty =
+        prettyPreview &&
+        Boolean(colType) &&
+        columnTypeSupportsPrettyPreview(colType) &&
+        (kind === 'json' ||
+          kind === 'object' ||
+          (colType!.toLowerCase() === 'xml' && typeof val === 'string'));
+
+      if (kind === 'boolean-true' || kind === 'boolean-false') {
+        td.textContent = formattedText;
+      } else if (kind === 'json' || kind === 'object') {
+        const mono = document.createElement('span');
+        mono.textContent = formattedText;
+        mono.style.cssText = `
+          font-family:var(--vscode-editor-font-family),monospace;
+          font-size:11px;
+          display:block;
+          max-width:100%;
+          ${
+            multilinePretty
+              ? 'white-space:pre-wrap;word-break:break-word;'
+              : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+          }
+        `;
+        mono.title = formattedText;
+        if (multilinePretty) {
+          td.style.whiteSpace = 'normal';
+          td.style.verticalAlign = 'top';
+        }
+        td.appendChild(mono);
+      } else if (kind === 'bytea') {
+        const mono = document.createElement('span');
+        mono.textContent = formattedText;
+        mono.style.cssText =
+          'font-family:var(--vscode-editor-font-family),monospace;font-size:11px;';
+        td.appendChild(mono);
+      } else if (multilinePretty) {
+        const wrap = document.createElement('span');
+        wrap.textContent = formattedText;
+        wrap.style.cssText =
+          'font-family:var(--vscode-editor-font-family),monospace;font-size:11px;white-space:pre-wrap;word-break:break-word;display:block;';
+        wrap.title = formattedText;
+        td.appendChild(wrap);
+        td.style.whiteSpace = 'normal';
+        td.style.verticalAlign = 'top';
+      } else {
+        td.textContent = formattedText;
+      }
     }
 
     return td;
@@ -908,11 +1076,12 @@ export class TableRenderer {
 
     // Blur any existing editor
     if (this.currentlyEditingCell) {
-      const existing = this.currentlyEditingCell.querySelector('input, textarea');
+      const existing = this.currentlyEditingCell.querySelector('input, textarea, select');
       if (existing) (existing as HTMLElement).blur();
     }
 
     this.currentlyEditingCell = td;
+    const editingRow = td.closest('tr');
     td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const currentValue = this.rows[sourceIndex]?.[col];
     const originalValue = this.originalRows[sourceIndex]?.[col] ?? currentValue;
@@ -968,6 +1137,9 @@ export class TableRenderer {
       onSave,
       onCancel,
       anchorEl: td,
+      dockParent: this.mainContainer,
+      dockAfter: this.tableContainer,
+      editingRowEl: editingRow instanceof HTMLTableRowElement ? editingRow : null,
     });
 
     td.appendChild(editorEl);
@@ -1224,6 +1396,11 @@ export class TableRenderer {
 
     this.currentlyEditingCell = null;
     this.rerenderTable();
+  }
+
+  /** Scrollable region for attaching listeners (streaming result pager). */
+  public getScrollContainer(): HTMLElement {
+    return this.tableContainer;
   }
 
   public dispose() {

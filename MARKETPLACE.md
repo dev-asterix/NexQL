@@ -58,6 +58,9 @@
 | 🤖 **AI-Powered** | GitHub Copilot, GitHub Models, OpenAI, Anthropic, and Google Gemini integration |
 | ⌨️ **Developer Tools** | IntelliSense, keyboard shortcuts, PSQL terminal access |
 | 📤 **Export Data** | Export query results to CSV, JSON, or Excel formats |
+| 📉 **Large result streaming** | Optional sliding-window cursor mode for big `SELECT`s — bounded memory, scroll to fetch |
+| 🔢 **Binary columns** | Configurable `bytea` display (hex / PostgreSQL / JSON debug) |
+| 🤖 **SQL Assistant** | Regenerate last reply or resend from an earlier user message; prefill when attaching context |
 
 ---
 
@@ -123,7 +126,7 @@
 
 ## 📋 Feature Matrix
 
-| Area | PgStudio v1.0.0 | Notes |
+| Area | PgStudio v1.2.1 | Notes |
 |---|---|---|
 | Core PostgreSQL object operations | ✅ | Tables, views, mat views, functions, roles, extensions, FDWs, and more |
 | AI-assisted SQL workflows | ✅ | Generate, optimize, explain, analyze, and notebook handoff |
@@ -136,7 +139,7 @@
 
 ---
 
-## ⚠️ Known Limitations (v1.0.0)
+## ⚠️ Known Limitations (v1.2.1)
 
 - In-grid editing is currently more limited than full desktop DB IDEs.
 - ERD/schema visualization is available but not yet feature-complete.

@@ -5,6 +5,11 @@
  */
 
 import { FilterClause, FilterOperator, FilterState } from '../../../common/types';
+import {
+  RESULT_TOOLBAR_ICON_CLASS,
+  applyAddFilterButtonStyle,
+  resultToolbarSvg,
+} from '../ResultToolbarUi';
 
 export interface FilterBarOptions {
   columns: string[];
@@ -333,7 +338,7 @@ export class FilterBar {
     globalInput.style.cssText = `
       min-width:220px;
       flex:1;
-      max-width:320px;
+      max-width:100%;
       background:var(--vscode-input-background);
       color:var(--vscode-input-foreground);
       border:1px solid var(--vscode-widget-border);
@@ -350,33 +355,37 @@ export class FilterBar {
 
     const addFilterBtn = document.createElement('button');
     addFilterBtn.type = 'button';
-    addFilterBtn.textContent = '+ Add filter';
     addFilterBtn.title = 'Add a column filter';
-    addFilterBtn.style.cssText = `
-      background:var(--vscode-button-secondaryBackground);
-      color:var(--vscode-button-secondaryForeground);
-      border:1px solid var(--vscode-widget-border);
-      border-radius:16px;
-      padding:4px 12px;
-      cursor:pointer;
-      font-size:12px;
-      white-space:nowrap;
-    `;
+    applyAddFilterButtonStyle(addFilterBtn);
     addFilterBtn.addEventListener('click', () => this.openAddFilterPanel(columns, addFilterBtn));
 
     const clearBtn = document.createElement('button');
     clearBtn.type = 'button';
-    clearBtn.textContent = '✕';
     clearBtn.title = 'Clear all filters';
+    clearBtn.setAttribute('aria-label', 'Clear all filters');
     clearBtn.style.cssText = `
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
       background:none;
       border:none;
       color:var(--vscode-descriptionForeground);
       cursor:pointer;
-      font-size:13px;
-      padding:0 6px;
+      padding:4px 6px;
       line-height:1;
+      border-radius:4px;
     `;
+    const clearIc = document.createElement('span');
+    clearIc.className = RESULT_TOOLBAR_ICON_CLASS;
+    clearIc.innerHTML = resultToolbarSvg('close');
+    clearBtn.appendChild(clearIc);
+    clearBtn.addEventListener('mouseenter', () => {
+      clearBtn.style.background =
+        'color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 55%, transparent)';
+    });
+    clearBtn.addEventListener('mouseleave', () => {
+      clearBtn.style.background = 'none';
+    });
     clearBtn.addEventListener('click', () => {
       this.filterState.globalQuery = '';
       this.filterState.clauses = [];
@@ -386,30 +395,6 @@ export class FilterBar {
 
     const badge = document.createElement('span');
     this.badge = badge;
-
-    const rightGroup = document.createElement('div');
-    rightGroup.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;';
-
-    const addRowBtn = document.createElement('button');
-    addRowBtn.type = 'button';
-    addRowBtn.textContent = '+ Add Row';
-    addRowBtn.title = 'Insert a new row';
-    addRowBtn.disabled = !this.onAddRow;
-    addRowBtn.style.cssText = `
-      background:var(--vscode-button-background);
-      color:var(--vscode-button-foreground);
-      border:1px solid transparent;
-      border-radius:4px;
-      padding:4px 12px;
-      cursor:pointer;
-      font-size:12px;
-      white-space:nowrap;
-      box-shadow:0 0 0 1px color-mix(in srgb, var(--vscode-button-background) 35%, transparent);
-      opacity:${this.onAddRow ? '1' : '0.5'};
-    `;
-    addRowBtn.addEventListener('click', () => {
-      this.onAddRow?.();
-    });
 
     const chipRow = document.createElement('div');
     chipRow.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:1 1 100%;min-width:0;margin-top:4px;';
@@ -462,10 +447,7 @@ export class FilterBar {
     leftGroup.appendChild(clearBtn);
     leftGroup.appendChild(badge);
 
-    rightGroup.appendChild(addRowBtn);
-
     this.container.appendChild(leftGroup);
-    this.container.appendChild(rightGroup);
     this.container.appendChild(chipRow);
 
     if (this.addFilterPanel) {

@@ -4,6 +4,10 @@
  * Limited to MAX_ROWS_TO_TRANSPOSE rows to avoid UI overflow.
  */
 
+import type { ByteaDisplayFormat } from '../../common/types';
+import { BYTEA_DISPLAY_DEFAULT } from '../../common/types';
+import { formatValue } from '../utils/formatting';
+
 export const MAX_ROWS_TO_TRANSPOSE = 100;
 
 export interface TransposeResult {
@@ -43,7 +47,8 @@ export function transposeResult(
 export function renderTransposeTable(
   columns: string[],
   rows: any[],
-  formatValue: (v: any) => string
+  columnTypes: Record<string, string> | undefined,
+  byteaDisplayFormat: ByteaDisplayFormat = BYTEA_DISPLAY_DEFAULT,
 ): HTMLElement {
   const result = transposeResult(columns, rows);
 
@@ -118,9 +123,15 @@ export function renderTransposeTable(
           overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
           color:${v === null || v === undefined ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-editor-foreground)'};
         `;
-        td.textContent = v === null || v === undefined ? 'NULL' : formatValue(v);
+        const pgCol = row['Column'] as string;
+        const colType = columnTypes?.[pgCol];
+        const display =
+          v === null || v === undefined
+            ? 'NULL'
+            : formatValue(v, colType, { byteaDisplayFormat }).text;
+        td.textContent = display;
         if (v !== null && v !== undefined) {
-          td.title = String(v);
+          td.title = display;
         }
       }
       tr.appendChild(td);

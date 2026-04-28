@@ -7,16 +7,33 @@ import { buildHistogram } from '../../../features/analyst/histogram';
 import { computeColumnStats } from '../../../features/analyst/columnAggregates';
 import { DISTINCT_COUNT_CAP } from '../../../features/analyst/constants';
 import { computePivot, type PivotAgg } from '../../../features/analyst/pivot';
+import { MAX_PIVOT_DISTINCT } from '../../../features/analyst/constants';
 import { ChartRenderer } from '../chart/ChartRenderer';
 import { detectNumericColumns } from '../chart/ChartControls';
 
 const HIST_COL_BUCKET = '__pg_hist_bucket';
 const HIST_COL_COUNT = '__pg_hist_count';
 
+/** Context sent when asking AI to help reduce pivot cardinality (server-side pre-aggregation). */
+export interface PivotAiHelpContext {
+  rowDimension: string;
+  columnDimension: string;
+  valueColumn: string | null;
+  aggregation: PivotAgg;
+  errorMessage: string;
+  isStreamingWindow: boolean;
+  inMemoryRowCount: number;
+  maxDistinctPerAxis: number;
+}
+
 export interface AnalystPanelProps {
   columns: string[];
   rows: Record<string, unknown>[];
   columnTypes?: Record<string, string>;
+  isStreaming?: boolean;
+  onRunFullDataset?: () => void;
+  /** Opens SQL Assistant with query, sample results, and pivot fields prefilled. */
+  onAskAiForPivotHelp?: (ctx: PivotAiHelpContext) => void;
 }
 
 function makeSectionTitle(text: string): HTMLElement {
@@ -77,7 +94,14 @@ function formatStatCell(v: number | undefined): string {
 }
 
 export function renderAnalystPanel(props: AnalystPanelProps): HTMLElement {
-  const { columns, rows, columnTypes } = props;
+  const {
+    columns,
+    rows,
+    columnTypes,
+    isStreaming = false,
+    onRunFullDataset,
+    onAskAiForPivotHelp,
+  } = props;
   const wrapper = document.createElement('div');
   wrapper.style.cssText =
     'flex:1;overflow:auto;display:flex;flex-direction:column;padding:8px 12px;gap:4px;max-height:70vh;';
@@ -250,6 +274,67 @@ export function renderAnalystPanel(props: AnalystPanelProps): HTMLElement {
       err.style.cssText = 'font-size:12px;color:var(--vscode-errorForeground);';
       err.textContent = result.error;
       pivotOut.appendChild(err);
+
+      const isCardinalityLimitError = result.error.includes('too many distinct values');
+      const showFullDatasetBtn = isStreaming && isCardinalityLimitError && !!onRunFullDataset;
+      const showAiBtn = isCardinalityLimitError && !!onAskAiForPivotHelp;
+
+      if (showFullDatasetBtn || showAiBtn) {
+        const hint = document.createElement('div');
+        hint.style.cssText =
+          'display:flex;flex-direction:column;gap:8px;padding:8px 10px;border:1px solid color-mix(in srgb, #f59e0b 45%, transparent);background:color-mix(in srgb, #f59e0b 12%, transparent);border-radius:4px;margin-top:8px;';
+
+        const msg = document.createElement('div');
+        msg.style.cssText = 'font-size:11px;color:var(--vscode-descriptionForeground);line-height:1.4;';
+        if (showFullDatasetBtn && !showAiBtn) {
+          msg.textContent =
+            'Pivot cardinality is capped on streamed rows. Run on full dataset for accurate pivot (may impact local machine performance).';
+        } else if (showFullDatasetBtn && showAiBtn) {
+          msg.textContent = `The in-browser pivot allows at most ${MAX_PIVOT_DISTINCT} distinct values per row/column axis. For streamed results, load the full dataset and/or ask AI for a pre-aggregated query.`;
+        } else {
+          msg.textContent = `The in-browser pivot allows at most ${MAX_PIVOT_DISTINCT} distinct values per row/column axis. Ask AI to rewrite the SQL with GROUP BY, bucketing, or rollups so the pivot stays tractable.`;
+        }
+        hint.appendChild(msg);
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText =
+          'display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;';
+
+        if (showAiBtn) {
+          const aiBtn = document.createElement('button');
+          aiBtn.type = 'button';
+          aiBtn.textContent = 'Ask AI to optimize query';
+          aiBtn.title =
+            'Open SQL Assistant with this query, sample rows, and your pivot fields';
+          aiBtn.style.cssText =
+            'padding:3px 10px;font-size:11px;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:1px solid var(--vscode-contrastBorder, transparent);border-radius:3px;';
+          aiBtn.onclick = () =>
+            onAskAiForPivotHelp!({
+              rowDimension: rowDim,
+              columnDimension: colDim,
+              valueColumn: valRaw || null,
+              aggregation: agg,
+              errorMessage: result.error,
+              isStreamingWindow: isStreaming,
+              inMemoryRowCount: rows.length,
+              maxDistinctPerAxis: MAX_PIVOT_DISTINCT,
+            });
+          btnRow.appendChild(aiBtn);
+        }
+
+        if (showFullDatasetBtn) {
+          const fullBtn = document.createElement('button');
+          fullBtn.type = 'button';
+          fullBtn.textContent = 'Run pivot on full dataset';
+          fullBtn.style.cssText =
+            'padding:3px 10px;font-size:11px;cursor:pointer;background:var(--vscode-button-secondaryBackground, var(--vscode-button-background));color:var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));border:1px solid var(--vscode-contrastBorder, transparent);border-radius:3px;';
+          fullBtn.onclick = () => onRunFullDataset!();
+          btnRow.appendChild(fullBtn);
+        }
+
+        hint.appendChild(btnRow);
+        pivotOut.appendChild(hint);
+      }
       return;
     }
 

@@ -102,14 +102,30 @@ describe('shared helpers', () => {
     expect(formatValueForSQL(true, 'boolean')).to.equal('true');
     expect(formatValueForSQL("O'Reilly")).to.equal("'O''Reilly'");
 
-    expect(formatValue(null)).to.deep.equal({ text: 'NULL', isNull: true, type: 'null' });
-    expect(formatValue(false)).to.deep.equal({ text: 'FALSE', isNull: false, type: 'boolean' });
-    expect(formatValue(99)).to.deep.equal({ text: '99', isNull: false, type: 'number' });
-    expect(formatValue(new Date('2024-06-15T12:00:00.000Z')).type).to.equal('date');
+    expect(formatValue(null)).to.deep.equal({ text: '[null]', isNull: true, type: 'null', kind: 'null' });
+    expect(formatValue(false)).to.deep.equal({
+      text: 'FALSE',
+      isNull: false,
+      type: 'boolean',
+      kind: 'boolean-false',
+    });
+    expect(formatValue(99)).to.deep.equal({ text: '99', isNull: false, type: 'number', kind: 'number' });
+    expect(formatValue(new Date('2024-06-15T12:00:00.000Z')).type).to.equal('timestamp');
     expect(formatValue({ key: 'value' }).text).to.equal('{"key":"value"}');
-    expect(formatValue('2024-06-15T12:00:00.000Z', 'timestamp').type).to.equal('timestamp');
-    expect(formatValue('2024-06-15', 'date').type).to.equal('date');
-    expect(formatValue('12:30:00', 'timetz').type).to.equal('time');
+    expect(
+      formatValue({ type: 'Buffer', data: [0xde, 0xad] }, 'bytea', { byteaDisplayFormat: 'hex0x' }).text,
+    ).to.equal('0xdead');
+    expect(
+      formatValue({ type: 'Buffer', data: [0xde, 0xad] }, 'bytea', { byteaDisplayFormat: 'postgresql' }).text,
+    ).to.equal('\\xdead');
+    expect(formatValue({ type: 'Buffer', data: [1, 2] }, 'bytea', { byteaDisplayFormat: 'json' }).kind).to.equal(
+      'bytea',
+    );
+    expect(formatValue('2024-06-15T12:00:00.000Z', 'timestamp').text).to.equal(
+      '2024-06-15T12:00:00.000Z',
+    );
+    expect(formatValue('2024-06-15', 'date').text).to.equal('2024-06-15');
+    expect(formatValue('12:30:00', 'timetz').text).to.equal('12:30:00');
 
     expect(rgbaToHex('rgba(255, 0, 17, 0.6)')).to.equal('#ff0011');
     expect(rgbaToHex('not rgba')).to.equal('not rgba');
