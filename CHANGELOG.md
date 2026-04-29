@@ -5,6 +5,27 @@ All notable changes to the PostgreSQL Explorer extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-04-29
+
+### Added
+
+**Result AI toolbar** — Replaces the hover-only overlay: a **toggle** (sparkles + chevron, `aria-expanded`, default **collapsed**) shows/hides the action strip; strip is **flex-docked** under the output area. **Add to chat** sends query text, sampled rows (capped), optional NOTICEs, and preset helper text.
+
+**Telemetry modes** — **`off`**: none. **`basic`**: usage counters only (commands, features, sessions, coarse connection/AI). **`detailed`**: + buckets for query duration/result size and spans (no SQL, hosts, or schema). Gated by VS Code global telemetry. Controls: status bar, **Set Telemetry Mode**, **Telemetry: Off | Basic | Detailed**, What’s New links - [Basic](command:postgres-explorer.telemetry.setModeBasic) | [Detailed](command:postgres-explorer.telemetry.setModeDetailed) | [Picker](command:postgres-explorer.telemetry.openModePicker). Details: **README**, **SECURITY.md**.
+
+- Dashboard: WAL/checkpointer/version-safe stats; unused-index severity; statement stats if extension present.
+- Connection test/save: TCP preflight; SSL cert paths for verify modes.
+- Webviews: typed message IDs + validation; shared panel CSS; chat CSP nonce.
+- Saved-query import: counts + merge by id/title; CI triggers documented; tree item keys; What’s New `command:` URIs.
+
+### Changed
+- Telemetry: `mode` + sinks/batching (see settings); lifecycle + usage + optional performance events.
+- Connections: no SSL downgrade when env is **production**; AI: provider allowlist + empty-message guard + usage events.
+- Grid prefs: structured responses; phased coverage merges before report; ignore `.cursor/`.
+
+### Fixed
+- Explorer favorites key typo (trailing space).
+
 ## [1.2.2] - 2026-04-28
 
 ### Added

@@ -192,13 +192,15 @@ export async function activate(context: vscode.ExtensionContext) {
     'postgresExplorer.favorites',
   ]);
 
-  const [providersModule, commandsModule, notebookKernelModule, whatsNewModule, statusBarModule] = await Promise.all([
-    import('./activation/providers'),
-    import('./activation/commands'),
-    import('./providers/NotebookKernel'),
-    import('./activation/WhatsNewManager'),
-    import('./activation/statusBar'),
-  ]);
+  const [providersModule, commandsModule, notebookKernelModule, whatsNewModule, statusBarModule, telemetryStatusBarModule] =
+    await Promise.all([
+      import('./activation/providers'),
+      import('./activation/commands'),
+      import('./providers/NotebookKernel'),
+      import('./activation/WhatsNewManager'),
+      import('./activation/statusBar'),
+      import('./activation/TelemetryStatusBar'),
+    ]);
 
   const { databaseTreeProvider, treeView, chatViewProviderInstance: chatView, savedQueriesTreeProvider, notebooksTreeProvider, autoRefreshService } = providersModule.registerProviders(context, outputChannel);
   context.subscriptions.push(autoRefreshService);
@@ -273,6 +275,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // Status bar for connection/database display
   statusBar = new statusBarModule.NotebookStatusBar();
   context.subscriptions.push(statusBar);
+
+  context.subscriptions.push(new telemetryStatusBarModule.TelemetryStatusBar());
 
   // Register Message Handlers
   const registry = MessageHandlerRegistry.getInstance();
