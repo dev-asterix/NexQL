@@ -7,13 +7,13 @@
   <meta http-equiv="Content-Security-Policy" content="{{CSP}}">
   <title>PostgreSQL Chat</title>
   <link rel="stylesheet" href="{{HIGHLIGHT_CSS_URI}}">
-  <script src="{{MARKED_URI}}"></script>
-  <script src="{{HIGHLIGHT_JS_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{MARKED_URI}}"></script>
+  <script nonce="{{NONCE}}" src="{{HIGHLIGHT_JS_URI}}"></script>
   <style>{{INLINE_STYLES}}</style>
 </head>
 
 <body data-vscode-theme-kind="">
-  <script>{{THEME_DETECTION_SCRIPT}}</script>
+  <script nonce="{{NONCE}}">{{THEME_DETECTION_SCRIPT}}</script>
   <div class="main-container">
     <!-- History Overlay -->
     <div class="history-overlay" id="historyOverlay" onclick="closeHistory(event)">
@@ -204,7 +204,7 @@
     </div>
   </div>
 
-  <script>{{INLINE_SCRIPTS}}</script>
+  <script nonce="{{NONCE}}">{{INLINE_SCRIPTS}}</script>
 
   <!-- Image lightbox -->
   <div id="imageLightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;cursor:zoom-out;" onclick="closeLightbox()">

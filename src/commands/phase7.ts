@@ -546,9 +546,11 @@ export async function importSavedQueries(): Promise<void> {
     const fs = require('fs').promises;
     const content = await fs.readFile(files[0].fsPath, 'utf8');
     const service = SavedQueriesService.getInstance();
-    await service.importQueries(content);
+    const result = await service.importQueries(content);
     refreshPhase7TreeViews();
-    vscode.window.showInformationMessage('Queries imported successfully.');
+    vscode.window.showInformationMessage(
+      `Queries imported: ${result.imported}, updated: ${result.updated}, skipped: ${result.skipped}.`,
+    );
   } catch (error) {
     ErrorService.getInstance().showError(
       `Failed to import queries: ${error instanceof Error ? error.message : String(error)}`

@@ -515,9 +515,10 @@ export class SqlExecutor {
         console.log(`SqlExecutor: Executing statement ${stmtIndex + 1}/${statements.length}:`, queryForExecution.substring(0, 100));
 
         let result;
+        const telemetry = TelemetryService.getInstance();
+        let spanId = '';
         try {
-          const telemetry = TelemetryService.getInstance();
-          const spanId = telemetry.startSpan(SpanNames.QUERY_EXECUTE, {
+          spanId = telemetry.startSpan(SpanNames.QUERY_EXECUTE, {
             statementIndex: stmtIndex + 1,
             statementCount: statements.length
           });
@@ -611,6 +612,11 @@ export class SqlExecutor {
           }
 
           const rows = result.rows || [];
+          telemetry.trackEvent('query_executed', {
+            success: true,
+            durationBucket: durationMs < 500 ? 'lt_500ms' : durationMs < 2000 ? '500ms_2s' : durationMs < 10000 ? '2_10s' : 'gte_10s',
+            resultSizeBucket: rows.length === 0 ? '0' : rows.length < 10 ? '1_9' : rows.length < 100 ? '10_99' : rows.length < 1000 ? '100_999' : 'gte_1000',
+          });
           let columns = result.fields?.map((f: any) => f.name) || [];
           if (columns.length === 0 && rows.length > 0) {
             columns = Object.keys(rows[0]);
@@ -722,6 +728,15 @@ export class SqlExecutor {
         } catch (err: any) {
           const stmtEndTime = Date.now();
           const executionTime = (stmtEndTime - stmtStartTime) / 1000;
+          const durationMs = executionTime * 1000;
+          if (spanId) {
+            telemetry.recordError(spanId, err instanceof Error ? err : new Error(String(err)));
+          }
+          telemetry.trackEvent('query_executed', {
+            success: false,
+            durationBucket: durationMs < 500 ? 'lt_500ms' : durationMs < 2000 ? '500ms_2s' : durationMs < 10000 ? '2_10s' : 'gte_10s',
+            resultSizeBucket: '0',
+          });
 
           console.error('SqlExecutor: Query error:', err);
 
@@ -735,7 +750,6 @@ export class SqlExecutor {
           }
 
           const slowThresholdMs = vscode.workspace.getConfiguration().get<number>('postgresExplorer.performance.slowQueryThresholdMs', 2000);
-          const durationMs = executionTime * 1000;
           const isSlow = durationMs >= slowThresholdMs;
 
           const pgErrorCode: string | undefined = err.code;

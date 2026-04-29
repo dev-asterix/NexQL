@@ -130,6 +130,63 @@ export interface WalReplicationStats {
 }
 
 import { Client, PoolClient } from 'pg';
+import { getSettledResult } from './data/resultUtils';
+
+/** Empty wal receiver row shape when pg_stat_wal_receiver is missing or unreadable. */
+const WAL_RECEIVER_EMPTY_SQL = `
+  SELECT
+    NULL::text AS status,
+    NULL::text AS received_lsn,
+    NULL::text AS latest_end_lsn,
+    NULL::text AS slot_name,
+    NULL::text AS sender_host,
+    NULL::int AS sender_port,
+    NULL::text AS last_msg_receipt_time
+  WHERE false
+`;
+
+/**
+ * Build SELECT for pg_stat_wal_receiver using only columns present (fork/version safe).
+ */
+async function resolveWalReceiverQuerySql(client: Client | PoolClient): Promise<string> {
+  try {
+    const oidRes = await client.query(`SELECT to_regclass('pg_stat_wal_receiver') AS roid`);
+    const roid = oidRes.rows?.[0]?.roid;
+    if (roid == null) {
+      return WAL_RECEIVER_EMPTY_SQL;
+    }
+    const colsRes = await client.query(
+      `
+      SELECT attname
+      FROM pg_attribute
+      WHERE attrelid = $1 AND attnum > 0 AND NOT attisdropped
+    `,
+      [roid],
+    );
+    const colset = new Set((colsRes.rows as { attname: string }[]).map((r) => r.attname));
+    if (colset.size === 0) {
+      return WAL_RECEIVER_EMPTY_SQL;
+    }
+    const colText = (name: string, alias: string) =>
+      colset.has(name) ? `${name}::text AS ${alias}` : `NULL::text AS ${alias}`;
+    const colInt = (name: string, alias: string) =>
+      colset.has(name) ? `${name} AS ${alias}` : `NULL::int AS ${alias}`;
+    return `
+      SELECT
+        ${colText('status', 'status')},
+        ${colText('received_lsn', 'received_lsn')},
+        ${colText('latest_end_lsn', 'latest_end_lsn')},
+        ${colText('slot_name', 'slot_name')},
+        ${colText('sender_host', 'sender_host')},
+        ${colInt('sender_port', 'sender_port')},
+        ${colText('last_msg_receipt_time', 'last_msg_receipt_time')}
+      FROM pg_stat_wal_receiver
+      LIMIT 1
+    `;
+  } catch {
+    return WAL_RECEIVER_EMPTY_SQL;
+  }
+}
 
 export async function fetchStats(client: Client | PoolClient, dbName: string): Promise<DashboardStats> {
   // Resolve version-specific stats source for checkpoints.
@@ -145,11 +202,40 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     ? 'pg_stat_checkpointer'
     : 'pg_stat_bgwriter';
 
+  // PG 17+ moved checkpoints to pg_stat_checkpointer with renamed counters.
+  const checkpointSelectSql =
+    serverVersionNum >= 170000
+      ? `
+            SELECT
+              COALESCE(num_timed, 0) AS checkpoints_timed,
+              COALESCE(num_requested, 0) AS checkpoints_req
+            FROM ${checkpointStatsView}
+            LIMIT 1
+        `
+      : `
+            SELECT
+              COALESCE(checkpoints_timed, 0) AS checkpoints_timed,
+              COALESCE(checkpoints_req, 0) AS checkpoints_req
+            FROM ${checkpointStatsView}
+            LIMIT 1
+        `;
+
+  let hasPgStatStatements = false;
+  try {
+    const extCheck = await client.query(`
+      SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') AS installed
+    `);
+    hasPgStatStatements = Boolean(extCheck.rows?.[0]?.installed);
+  } catch {
+    hasPgStatStatements = false;
+  }
+
   // Resolve pg_stat_statements timing column across PostgreSQL versions.
   let pgStatStatementsTimeExpr = 'total_time';
   let pgStatStatementsMeanExpr = 'mean_time';
-  try {
-    const pgStatStatementsColumnRes = await client.query(`
+  if (hasPgStatStatements) {
+    try {
+      const pgStatStatementsColumnRes = await client.query(`
       SELECT
         EXISTS (
           SELECT 1
@@ -166,16 +252,32 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
             AND NOT attisdropped
         ) AS has_mean_exec_time
     `);
-    if (Boolean(pgStatStatementsColumnRes.rows?.[0]?.has_total_exec_time)) {
-      pgStatStatementsTimeExpr = 'total_exec_time';
+      if (Boolean(pgStatStatementsColumnRes.rows?.[0]?.has_total_exec_time)) {
+        pgStatStatementsTimeExpr = 'total_exec_time';
+      }
+      if (Boolean(pgStatStatementsColumnRes.rows?.[0]?.has_mean_exec_time)) {
+        pgStatStatementsMeanExpr = 'mean_exec_time';
+      }
+    } catch {
+      pgStatStatementsTimeExpr = 'total_time';
+      pgStatStatementsMeanExpr = 'mean_time';
     }
-    if (Boolean(pgStatStatementsColumnRes.rows?.[0]?.has_mean_exec_time)) {
-      pgStatStatementsMeanExpr = 'mean_exec_time';
-    }
-  } catch {
-    pgStatStatementsTimeExpr = 'total_time';
-    pgStatStatementsMeanExpr = 'mean_time';
   }
+
+  const walReceiverSql = await resolveWalReceiverQuerySql(client);
+
+  const pgStatStatementsPromise = hasPgStatStatements
+    ? client.query(
+        `
+              SELECT query, calls, ${pgStatStatementsTimeExpr} AS total_time, ${pgStatStatementsMeanExpr} AS mean_time, rows
+            FROM pg_stat_statements
+            WHERE dbid = (SELECT oid FROM pg_database WHERE datname = $1)
+          ORDER BY ${pgStatStatementsTimeExpr} DESC
+            LIMIT 10
+    `,
+        [dbName],
+      )
+    : Promise.resolve({ rows: [] as unknown[] });
 
   // Fetch data with error handling for each query to prevent one failure from breaking the entire dashboard
   const [
@@ -316,24 +418,10 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     // Settings (Max Connections)
     client.query(`SHOW max_connections`),
 
-    // Checkpoint counters are cluster-level and moved from pg_stat_bgwriter to pg_stat_checkpointer in PG 17.
-    client.query(`
-            SELECT
-              COALESCE(checkpoints_timed, 0) AS checkpoints_timed,
-              COALESCE(checkpoints_req, 0) AS checkpoints_req
-            FROM ${checkpointStatsView}
-            LIMIT 1
-        `),
+    // Checkpoint counters: PG 17+ uses pg_stat_checkpointer (num_timed/num_requested); older PG uses pg_stat_bgwriter.
+    client.query(checkpointSelectSql),
 
-    // pg_stat_statements (Top Queries) - Safe selection that returns empty if extension missing
-    // We use a check to avoid error log spam if possible, or just let it fail gracefully via allSettled
-        client.query(`
-              SELECT query, calls, ${pgStatStatementsTimeExpr} AS total_time, ${pgStatStatementsMeanExpr} AS mean_time, rows
-            FROM pg_stat_statements
-            WHERE dbid = (SELECT oid FROM pg_database WHERE datname = $1)
-          ORDER BY ${pgStatStatementsTimeExpr} DESC
-            LIMIT 10
-    `, [dbName]),
+    pgStatStatementsPromise,
 
     // Wait Events Information
     client.query(`
@@ -430,18 +518,7 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
       )
     `),
 
-    client.query(`
-      SELECT
-        status,
-        received_lsn::text AS received_lsn,
-        latest_end_lsn::text AS latest_end_lsn,
-        slot_name,
-        sender_host::text AS sender_host,
-        sender_port,
-        last_msg_receipt_time::text AS last_msg_receipt_time
-      FROM pg_stat_wal_receiver
-      LIMIT 1
-    `),
+    client.query(walReceiverSql),
 
     client.query(`
       SELECT
@@ -473,7 +550,7 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     // Unused indexes (never scanned), excluding PK/UNIQUE/constraint-backed indexes.
     client.query(`
       SELECT s.schemaname || '.' || s.indexrelname AS index_name,
-             s.tablename AS table_name,
+             s.relname AS table_name,
              pg_size_pretty(pg_relation_size(s.indexrelid)) AS index_size,
              pg_relation_size(s.indexrelid) AS raw_size
       FROM pg_stat_user_indexes s
@@ -585,15 +662,9 @@ export async function fetchStats(client: Client | PoolClient, dbName: string): P
     `, [dbName]),
   ]);
 
-  // Helper to safely extract result or return empty default
-  const getResult = (result: PromiseSettledResult<any>, defaultValue: any = { rows: [] }) => {
-    if (result.status === 'fulfilled') {
-      return result.value;
-    } else {
-      console.error('Dashboard query failed:', result.reason?.message || result.reason);
-      return defaultValue;
-    }
-  };
+  // Helper to safely extract result or return empty default.
+  const getResult = (result: PromiseSettledResult<any>, defaultValue: any = { rows: [] }) =>
+    getSettledResult(result, defaultValue, 'Dashboard query failed');
 
   const dbInfo = getResult(dbInfoRes).rows[0] || {};
   const connections = getResult(connRes).rows;

@@ -176,6 +176,83 @@ export class ConnectionFormPanel {
         };
 
         const runTest = async (connection: any, isSave: boolean) => {
+          const preflightConnection = async (): Promise<void> => {
+            const host = String(connection.host || "").trim();
+            if (!host) {
+              throw new Error("Host is required.");
+            }
+            const port = Number.parseInt(String(connection.port), 10) || 5432;
+            const timeoutMs = Math.max(
+              1000,
+              ((Number.parseInt(String(connection.connectTimeout), 10) || 15) + 2) *
+                1000,
+            );
+
+            const sslMode = connection.sslmode || "prefer";
+            if (sslMode === "verify-ca" || sslMode === "verify-full") {
+              const requiredFiles = [
+                { key: "sslRootCertPath", label: "CA certificate" },
+              ];
+              if (sslMode === "verify-full") {
+                requiredFiles.push(
+                  { key: "sslCertPath", label: "Client certificate" },
+                  { key: "sslKeyPath", label: "Client key" },
+                );
+              }
+              for (const file of requiredFiles) {
+                const filePath = String(connection[file.key] || "").trim();
+                if (!filePath) {
+                  throw new Error(
+                    `${file.label} path is required for SSL mode "${sslMode}".`,
+                  );
+                }
+                if (!fs.existsSync(filePath)) {
+                  throw new Error(
+                    `${file.label} file does not exist: ${filePath}.`,
+                  );
+                }
+              }
+            }
+
+            if (!connection.ssh?.enabled) {
+              const net = await import("node:net");
+              await new Promise<void>((resolve, reject) => {
+                const socket = new net.Socket();
+                let settled = false;
+                const done = (err?: Error) => {
+                  if (settled) return;
+                  settled = true;
+                  socket.destroy();
+                  if (err) reject(err);
+                  else resolve();
+                };
+                socket.setTimeout(timeoutMs);
+                socket.once("connect", () => done());
+                socket.once("timeout", () =>
+                  done(
+                    new Error(
+                      `Connection timeout after ${Math.ceil(
+                        timeoutMs / 1000,
+                      )}s reaching ${host}:${port}.`,
+                    ),
+                  ),
+                );
+                socket.once("error", (err: Error) =>
+                  done(
+                    new Error(
+                      `Cannot reach ${host}:${port}. ${
+                        err.message || "Network error."
+                      }`,
+                    ),
+                  ),
+                );
+                socket.connect(port, host);
+              });
+            }
+          };
+
+          await preflightConnection();
+
           // Always use the user's configured database for both test and save
           // validation. Previously, save validation hardcoded 'postgres', which
           // broke .pgpass: pg reads ~/.pgpass by matching (host, port, database,

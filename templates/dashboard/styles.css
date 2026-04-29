@@ -115,6 +115,8 @@ h1, h2, h3 { margin: 0; font-weight: 500; }
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+  z-index: 2;
 }
 
 .header-info {
@@ -158,6 +160,10 @@ h1, h2, h3 { margin: 0; font-weight: 500; }
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--sp-6);
+}
+
+#tab-schema-health .charts-row {
+  align-items: start;
 }
 
 #tab-performance .performance-charts-grid {
@@ -210,6 +216,76 @@ h1, h2, h3 { margin: 0; font-weight: 500; }
   border-radius: var(--card-radius);
   padding: var(--sp-4);
   height: 200px;
+}
+
+/* Schema Health: unused indexes need vertical scroll + flexible height (avoid overlapping sections below). */
+.chart-box.chart-box--schema-scroll {
+  height: auto;
+  min-height: 200px;
+  max-height: min(520px, 70vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-box.chart-box--schema-scroll .unused-indexes-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.unused-indexes-scroll {
+  max-height: min(260px, 45vh);
+  overflow-y: auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* .table-container later sets overflow:hidden — kills vertical scroll on same node */
+.table-container.unused-indexes-scroll {
+  overflow: auto;
+}
+
+.unused-indexes-details {
+  border: var(--card-border);
+  border-radius: var(--card-radius);
+  background: rgba(128, 128, 128, 0.04);
+}
+
+.unused-indexes-details > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted-color);
+  user-select: none;
+}
+
+.unused-indexes-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.unused-indexes-details > summary::before {
+  content: '▸ ';
+  display: inline-block;
+  transition: transform 0.12s ease;
+}
+
+.unused-indexes-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.unused-indexes-details .unused-indexes-scroll {
+  max-height: min(220px, 38vh);
+  margin: 0 8px 8px;
+}
+
+.unused-indexes-empty-note {
+  padding: 14px;
+  text-align: center;
+  color: var(--muted-color);
+  font-size: 12px;
 }
 
 .performance-insights-row {
@@ -605,10 +681,13 @@ tr.row-focus {
   transform: translateX(100%);
   transition: transform 0.25s ease;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
+  /* Closed drawer must not intercept clicks (hit-testing can follow pre-transform box in some webviews — blocks header "Ask AI"). */
+  pointer-events: none;
 }
 
 .ai-panel.open {
   transform: translateX(0);
+  pointer-events: auto;
 }
 
 .ai-panel-header {

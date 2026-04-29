@@ -6,6 +6,7 @@ import { SecretStorageService } from './SecretStorageService';
 import { SSHService } from './SSHService';
 import { ErrorService } from './ErrorService';
 import { resolvePgPassPassword, pgPassFileDescription } from '../utils/pgPassUtils';
+import { TelemetryService } from './TelemetryService';
 
 export interface PoolMetrics {
   connectionId: string;
@@ -102,6 +103,10 @@ export class ConnectionManager {
   }
 
   private shouldFallback(config: ConnectionConfig, err: any): boolean {
+    // Never downgrade SSL in production-tagged environments.
+    if (config.environment === 'production') {
+      return false;
+    }
     const sslMode = config.sslmode || 'prefer';
     // Only fallback if mode is prefer (or 'allow' - rare)
     // require, verify-ca, verify-full should NOT fallback
@@ -113,6 +118,7 @@ export class ConnectionManager {
 
   /** Get a pooled client for ephemeral operations. Caller MUST release when done. */
   public async getPooledClient(config: ConnectionConfig): Promise<PoolClient> {
+    const telemetry = TelemetryService.getInstance();
     const key = this.getConnectionKey(config);
     let pool = this.pools.get(key);
 
@@ -124,6 +130,7 @@ export class ConnectionManager {
 
     try {
       const client = await pool.connect();
+      telemetry.trackEvent('connection_opened', { connectionKind: 'pooled' });
 
       // Apply read-only mode if configured
       if (config.readOnlyMode) {
@@ -136,6 +143,7 @@ export class ConnectionManager {
 
       return client;
     } catch (err: any) {
+      telemetry.trackEvent('connection_error', { errorCategory: this.categorizeConnectionError(err) });
       // Handle SSL Fallback
       if (this.shouldFallback(config, err)) {
         console.warn(`SSL connection failed for ${key}, falling back to non-SSL`, err);
@@ -154,6 +162,7 @@ export class ConnectionManager {
         this.pools.set(key, pool);
 
         const client = await pool.connect();
+        telemetry.trackEvent('connection_opened', { connectionKind: 'pooled' });
 
         // Apply read-only mode if configured
         if (config.readOnlyMode) {
@@ -186,6 +195,7 @@ export class ConnectionManager {
 
   /** Get a persistent client for a session (notebooks, transactions). */
   public async getSessionClient(config: ConnectionConfig, sessionId: string): Promise<Client> {
+    const telemetry = TelemetryService.getInstance();
     const key = `${this.getConnectionKey(config)}:session:${sessionId}`;
     if (this.sessions.has(key)) return this.sessions.get(key)!;
 
@@ -195,6 +205,7 @@ export class ConnectionManager {
 
     try {
       await client.connect();
+      telemetry.trackEvent('connection_opened', { connectionKind: 'session' });
 
       // Apply read-only mode if configured
       if (config.readOnlyMode) {
@@ -212,6 +223,7 @@ export class ConnectionManager {
         const nonSSLConfig = await this.createClientConfig(config, true);
         client = new Client(nonSSLConfig);
         await client.connect();
+        telemetry.trackEvent('connection_opened', { connectionKind: 'session' });
 
         // Apply read-only mode if configured
         if (config.readOnlyMode) {
@@ -222,12 +234,14 @@ export class ConnectionManager {
           }
         }
       } else {
+        telemetry.trackEvent('connection_error', { errorCategory: this.categorizeConnectionError(err) });
         throw err;
       }
     }
 
     client.on('end', () => this.sessions.delete(key));
     client.on('error', (err) => {
+      telemetry.trackEvent('connection_error', { errorCategory: this.categorizeConnectionError(err) });
       console.error(`Session client error for ${key}`, err);
       ErrorService.getInstance().showError(
         `Session connection error (${config.name}): ${err.message}`,
@@ -248,6 +262,7 @@ export class ConnectionManager {
         console.error(`Error closing session ${key}:`, e);
       }
       this.sessions.delete(key);
+      TelemetryService.getInstance().trackEvent('connection_closed', { reason: 'session_end' });
     }
   }
 
@@ -317,6 +332,16 @@ export class ConnectionManager {
       await client.end().catch((e) => console.error('Error closing session', e));
     }
     this.sessions.clear();
+    TelemetryService.getInstance().trackEvent('connection_closed', { reason: 'close_all' });
+  }
+
+  private categorizeConnectionError(err: unknown): string {
+    const message = String((err as any)?.message ?? err ?? '').toLowerCase();
+    if (message.includes('timeout')) return 'timeout';
+    if (message.includes('auth') || message.includes('password')) return 'auth';
+    if (message.includes('ssl') || message.includes('certificate')) return 'ssl';
+    if (message.includes('network') || message.includes('econn') || message.includes('enotfound')) return 'network';
+    return 'unknown';
   }
 
   private getConnectionKey(config: ConnectionConfig): string {
@@ -334,12 +359,7 @@ export class ConnectionManager {
       password = await SecretStorageService.getInstance().getPassword(config.id);
     }
 
-    // 2) Fallback: password stored inline in settings (legacy or manually specified)
-    if (!password && (config as any).password) {
-      password = (config as any).password;
-    }
-
-    // 3) Secondary fallback: resolve from .pgpass file
+    // 2) Secondary fallback: resolve from .pgpass file
     //    Only attempt this when the user has explicitly configured a username.
     //    We do NOT use the OS default username here, because that would silently
     //    resolve a wrong .pgpass entry for connections that rely on trust auth.

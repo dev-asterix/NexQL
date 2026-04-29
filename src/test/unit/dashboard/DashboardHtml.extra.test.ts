@@ -2,7 +2,12 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 
-import { getErrorHtml, getHtmlForWebview, getLoadingHtml } from '../../../dashboard/DashboardHtml';
+import {
+  DASHBOARD_LOADING_SHELL_MARKER,
+  getErrorHtml,
+  getHtmlForWebview,
+  getLoadingHtml,
+} from '../../../dashboard/DashboardHtml';
 
 describe('DashboardHtml (extra)', () => {
   let sandbox: sinon.SinonSandbox;
@@ -66,7 +71,8 @@ describe('DashboardHtml (extra)', () => {
 
   it('renders helper HTML snippets', () => {
     const loading = getLoadingHtml();
-    expect(loading).to.contain('Loading Dashboard...');
+    expect(loading).to.contain(DASHBOARD_LOADING_SHELL_MARKER);
+    expect(loading).to.contain('Loading dashboard metrics...');
 
     const error = getErrorHtml('boom');
     expect(error).to.contain('Dashboard Error');

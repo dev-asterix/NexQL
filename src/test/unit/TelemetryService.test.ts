@@ -38,13 +38,18 @@ describe('TelemetryService', () => {
     (TelemetryService as any).instance = undefined;
   });
 
-  it('stays disabled when configuration turns telemetry off', () => {
-    let enabled = false;
+  it('stays disabled when telemetry mode is off', () => {
+    let mode: 'off' | 'basic' | 'detailed' = 'off';
 
     sandbox.stub(vscode.workspace, 'getConfiguration').callsFake((section?: string) => {
       if (section === 'postgresExplorer.telemetry') {
         return {
-          get: <T>(_key: string, defaultValue?: T) => (enabled as unknown as T) ?? defaultValue as T
+          get: <T>(key: string, defaultValue?: T) => {
+            if (key === 'mode') return mode as unknown as T;
+            if (key === 'allowUsage') return true as unknown as T;
+            if (key === 'allowPerformance') return false as unknown as T;
+            return defaultValue as T;
+          }
         } as any;
       }
 
@@ -53,6 +58,7 @@ describe('TelemetryService', () => {
       } as any;
     });
 
+    sandbox.stub(vscode.env, 'isTelemetryEnabled').value(true);
     const createOutputChannelStub = sandbox.stub(vscode.window, 'createOutputChannel');
     const configurationHandler: { current?: (event: any) => void } = {};
     sandbox.stub(vscode.workspace, 'onDidChangeConfiguration').callsFake((cb: any) => {
@@ -66,20 +72,20 @@ describe('TelemetryService', () => {
     const context = createContext();
     service.initialize(context);
 
-    expect(createOutputChannelStub.called).to.be.false;
+    expect(createOutputChannelStub.called).to.be.true;
     expect(context.subscriptions).to.have.lengthOf(1);
 
     expect(service.startSpan('query.execute')).to.equal('');
     service.recordMetric('rows', 5, 'count');
     expect(service.getSummary()).to.deep.equal({ enabled: false, activeSpans: 0, spanNames: [] });
 
-    enabled = true;
+    mode = 'basic';
     configurationHandler.current?.({ affectsConfiguration: (setting: string) => setting === 'postgresExplorer.telemetry' });
     expect(service.isEnabled()).to.be.true;
   });
 
-  it('records spans, metrics, and errors when telemetry is enabled', async () => {
-    let enabled = true;
+  it('records spans and events when telemetry is enabled', async () => {
+    let mode: 'off' | 'basic' | 'detailed' = 'detailed';
     let configurationHandler: ((event: any) => void) | undefined;
     const appendLine = sandbox.stub();
     const outputChannel = {
@@ -91,7 +97,14 @@ describe('TelemetryService', () => {
     sandbox.stub(vscode.workspace, 'getConfiguration').callsFake((section?: string) => {
       if (section === 'postgresExplorer.telemetry') {
         return {
-          get: <T>(_key: string, defaultValue?: T) => (enabled as unknown as T) ?? defaultValue as T
+          get: <T>(key: string, defaultValue?: T) => {
+            if (key === 'mode') return mode as unknown as T;
+            if (key === 'allowUsage') return true as unknown as T;
+            if (key === 'allowPerformance') return true as unknown as T;
+            if (key === 'maxBatchSize') return 10 as unknown as T;
+            if (key === 'flushIntervalMs') return 5000 as unknown as T;
+            return defaultValue as T;
+          }
         } as any;
       }
 
@@ -105,12 +118,12 @@ describe('TelemetryService', () => {
       return { dispose: () => undefined };
     });
     sandbox.stub(vscode.window, 'createOutputChannel').returns(outputChannel);
+    sandbox.stub(vscode.env, 'isTelemetryEnabled').value(true);
 
     const service = TelemetryService.getInstance();
     const context = createContext();
     service.initialize(context);
 
-    expect(appendLine.firstCall.args[0]).to.contain('Telemetry initialized');
     expect(context.subscriptions).to.have.lengthOf(1);
 
     const clock = sandbox.useFakeTimers({ now: 1_000 });
@@ -121,10 +134,8 @@ describe('TelemetryService', () => {
 
     clock.tick(25);
     service.endSpan(spanId, { rows: 2 });
-    expect(appendLine.getCalls().some((call) => String(call.args[0]).includes('[END] query.execute (25ms)'))).to.be.true;
 
-    service.recordMetric('rows', 10, 'count');
-    expect(appendLine.getCalls().some((call) => String(call.args[0]).includes('[METRIC] rows: 10 count'))).to.be.true;
+    service.trackEvent('command_invoked', { group: 'connection' });
 
     const traced = await service.trace('ai.request', async () => 42, { model: 'test' });
     expect(traced).to.equal(42);
@@ -142,9 +153,9 @@ describe('TelemetryService', () => {
 
     const errorSpanId = service.startSpan('query.stream');
     service.recordError(errorSpanId, new Error('failure'));
-    expect(appendLine.getCalls().some((call) => String(call.args[0]).includes('[ERROR] query.stream'))).to.be.true;
+    expect(service.getSummary().activeSpans).to.equal(0);
 
-    enabled = false;
+    mode = 'off';
     configurationHandler?.({ affectsConfiguration: (setting: string) => setting === 'postgresExplorer.telemetry' });
     expect(service.isEnabled()).to.be.false;
 

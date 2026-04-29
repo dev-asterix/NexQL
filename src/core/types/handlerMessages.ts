@@ -6,11 +6,24 @@ export type HandlerMessageType =
   | 'breadcrumbNavigate'
   | 'saveColumnWidths'
   | 'getColumnWidths'
-  | 'exportRequest'
+  | 'export_request'
   | 'retryCell'
   | 'explainError'
-  | 'fixQuery';
+  | 'fixQuery'
+  | 'runDerivedQuery'
+  | 'showErrorMessage'
+  | 'gridCommitPreference'
+  | 'saveChanges'
+  | 'insertRow'
+  | 'fkLookup';
 
 export interface HandlerMessageBase {
-  type: string;
+  type: HandlerMessageType | string;
+}
+
+export interface HandlerResponseBase {
+  ok: boolean;
+  code: string;
+  remediation?: string;
+  error?: string;
 }

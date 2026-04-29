@@ -376,22 +376,16 @@
       <h3 style="font-size: 1.1rem; margin-bottom: 4px;">Index Health</h3>
 
       <div class="charts-row" style="margin-bottom: 0;">
-        <div class="chart-box">
+        <div class="chart-box chart-box--schema-scroll">
           <div class="label">Unused Indexes <button class="card-ai-btn" data-metric="unused-indexes" title="Ask AI about unused indexes">&#129504;</button></div>
-          <div class="chart-note">Indexes with zero scans excluding PK/UNIQUE/constraint-backed indexes. Review before dropping.</div>
-          <div class="table-container">
-            <table id="unused-indexes-table">
-              <thead>
-                <tr>
-                  <th>Index</th>
-                  <th>Table</th>
-                  <th style="width: 100px; text-align: right;">Size</th>
-                  <th style="width: 80px; text-align: center;">Severity</th>
-                </tr>
-              </thead>
-              <tbody><!-- Populated by JS --></tbody>
-            </table>
+          <div class="chart-note">
+            Non–constraint indexes with <strong>zero index scans</strong> (<code>idx_scan = 0</code>).
+            <strong>Index</strong> is schema-qualified name; <strong>Table</strong> is the heap relation;
+            <strong>Size</strong> is on-disk index bytes (<code>pg_relation_size</code>);
+            <strong>Severity</strong> is by wasted space: Large &gt;50&nbsp;MB, Medium &gt;10&nbsp;MB, Small ≤10&nbsp;MB (collapsed below).
+            Review before dropping—indexes may support constraints or rare queries.
           </div>
+          <div id="unused-indexes-content" class="unused-indexes-root"><!-- Populated by JS --></div>
         </div>
 
         <div class="chart-box">

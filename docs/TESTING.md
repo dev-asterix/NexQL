@@ -41,6 +41,7 @@ UI automation for this product targets the **VS Code Extension Host**. Use **`@v
 
 ## CI
 
-- Unit job: `npm test`, `npm run coverage:phased` (phased per-area checks: utils → handlers). This provides a practical CI gate without requiring immediate repo-wide coverage for every file.
+- Trigger model: `.github/workflows/test.yml` runs on `pull_request`, `push` (main/master), and `workflow_dispatch`.
+- Unit job: `npm test`, `npm run coverage:phased` (phased per-area checks: utils → handlers, merged before report generation).
 - Integration job: `npm run test:integration` with Postgres service.
 - E2E job (optional / manual): `npm run test:e2e` under `xvfb-run` on Linux; artifacts include JUnit XML when `MOCHA_FILE` is set.

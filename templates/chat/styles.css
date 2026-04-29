@@ -6,6 +6,13 @@
           --transition-normal: 0.25s ease;
           /* 4px spacing tokens */
           --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-6: 24px; --sp-8: 32px;
+          /* Notebook output toolbar language */
+          --ui-surface: color-mix(in srgb, var(--vscode-editor-background) 90%, transparent);
+          --ui-surface-muted: color-mix(in srgb, var(--vscode-input-background) 90%, var(--vscode-editor-background) 10%);
+          --ui-border: color-mix(in srgb, var(--vscode-widget-border) 60%, transparent);
+          --ui-border-strong: color-mix(in srgb, var(--vscode-focusBorder) 30%, var(--vscode-widget-border));
+          --ui-hover: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 55%, transparent);
+          --ui-text-muted: var(--vscode-descriptionForeground);
         }
 
         * {
@@ -256,7 +263,8 @@
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 4px 0;
+          padding: 4px 0 8px;
+          border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border) 48%, transparent);
         }
 
         .chat-header-left {
@@ -272,14 +280,14 @@
         }
 
         .header-btn {
-          background: transparent;
-          border: 1px solid transparent;
-          color: var(--vscode-descriptionForeground);
+          background: var(--ui-surface);
+          border: 1px solid var(--ui-border);
+          color: var(--ui-text-muted);
           cursor: pointer;
-          padding: 4px 6px;
-          border-radius: var(--chat-radius-sm);
+          padding: 4px 8px;
+          border-radius: 6px;
           transition: all var(--transition-fast);
-          opacity: 0.7;
+          opacity: 0.95;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -287,7 +295,9 @@
 
         .header-btn:hover {
           opacity: 1;
-          background-color: var(--vscode-toolbar-hoverBackground);
+          background: var(--ui-hover);
+          color: var(--vscode-foreground);
+          border-color: var(--ui-border-strong);
         }
 
         .header-btn svg {
@@ -315,15 +325,16 @@
           display: inline-flex;
           align-items: center;
           gap: 5px;
-          padding: 3px 7px;
-          border-radius: var(--chat-radius-sm);
-          border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.2));
-          opacity: 0.85;
+          padding: 4px 8px;
+          border-radius: 999px;
+          border: 1px solid var(--ui-border);
+          background: var(--ui-surface);
+          opacity: 0.95;
         }
 
         .ai-model-icon-btn:hover {
           opacity: 1;
-          border-color: var(--vscode-focusBorder);
+          border-color: var(--ui-border-strong);
         }
 
         .ai-model-icon-btn svg {
@@ -405,9 +416,9 @@
         }
 
         .message.user .message-bubble {
-          background: transparent;
+          background: var(--ui-surface);
           color: var(--vscode-foreground);
-          border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.3));
+          border: 1px solid var(--ui-border);
           border-bottom-right-radius: 4px;
         }
 
@@ -827,19 +838,21 @@
           flex-direction: column;
           gap: 8px;
           padding: 10px;
-          background: color-mix(in srgb, var(--vscode-input-background) 92%, var(--vscode-editor-background) 8%);
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border) 85%, transparent);
-          border-radius: 8px;
+          background: var(--ui-surface-muted);
+          border: 1px solid var(--ui-border);
+          border-radius: 10px;
           transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
         }
 
         .input-container:focus-within {
           border-color: var(--vscode-focusBorder);
-          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 35%, transparent);
         }
 
         .composer-editor {
           width: 100%;
+          border: none;
+          box-shadow: none;
         }
 
         .composer-footer {
@@ -853,17 +866,28 @@
           width: 100%;
           min-height: 38px;
           padding: 2px 2px 0;
-          border: none;
+          border: none !important;
           background: transparent;
           color: var(--vscode-input-foreground);
           font-family: var(--vscode-font-family), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           font-size: 14px;
-          outline: none;
+          outline: none !important;
+          box-shadow: none !important;
+          -webkit-appearance: none;
+          appearance: none;
           resize: none;
           line-height: 1.45;
           overflow-y: hidden;
           scrollbar-width: thin;
           scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+        }
+
+        .chat-input:focus,
+        .chat-input:focus-visible,
+        .chat-input:active {
+          border: none !important;
+          outline: none !important;
+          box-shadow: none !important;
         }
 
         .chat-input::-webkit-scrollbar {
@@ -905,9 +929,9 @@
           width: 24px;
           height: 24px;
           padding: 0;
-          background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 65%, transparent);
-          color: var(--vscode-descriptionForeground);
-          border-radius: 5px;
+          background: transparent;
+          color: var(--ui-text-muted);
+          border-radius: 6px;
           cursor: pointer;
           display: flex;
           align-items: center;
@@ -915,8 +939,9 @@
         }
 
         .attach-btn:hover:not(:disabled) {
-          background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 85%, var(--vscode-focusBorder) 15%);
+          background: var(--ui-hover);
           color: var(--vscode-foreground);
+          border-color: var(--ui-border-strong);
         }
 
         .attach-btn:disabled {
@@ -933,9 +958,9 @@
           width: 24px;
           height: 24px;
           padding: 0;
-          background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 65%, transparent);
-          color: var(--vscode-descriptionForeground);
-          border-radius: 5px;
+          background: transparent;
+          color: var(--ui-text-muted);
+          border-radius: 6px;
           cursor: pointer;
           display: flex;
           align-items: center;
@@ -945,8 +970,9 @@
         }
 
         .mention-btn:hover:not(:disabled) {
-          background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 85%, var(--vscode-focusBorder) 15%);
+          background: var(--ui-hover);
           color: var(--vscode-foreground);
+          border-color: var(--ui-border-strong);
         }
 
         .mention-btn:disabled {
@@ -973,11 +999,11 @@
         .send-btn {
           margin-left: auto;
           min-width: 54px;
-          height: 22px;
-          padding: 0 7px;
-          background: var(--vscode-button-background);
+          height: 24px;
+          padding: 0 10px;
+          background: color-mix(in srgb, var(--vscode-button-background) 85%, transparent);
           color: var(--vscode-button-foreground);
-          border-radius: 4px;
+          border-radius: 6px;
           cursor: pointer;
           display: inline-flex;
           align-items: center;
@@ -991,12 +1017,12 @@
 
         .send-btn:hover:not(:disabled) {
           opacity: 1;
-          background: var(--vscode-button-hoverBackground);
-          transform: translateY(-1px);
+          background: color-mix(in srgb, var(--vscode-button-hoverBackground) 90%, transparent);
+          border-color: color-mix(in srgb, var(--vscode-focusBorder) 38%, var(--vscode-button-background));
         }
 
         .send-btn:active:not(:disabled) {
-          transform: translateY(0);
+          opacity: 0.92;
         }
 
         .send-btn:disabled {
@@ -1051,8 +1077,9 @@
           align-items: center;
           gap: 6px;
           padding: 4px 8px 4px 10px;
-          background: var(--vscode-badge-background);
-          color: var(--vscode-badge-foreground);
+          background: var(--ui-surface);
+          color: var(--vscode-foreground);
+          border: 1px solid var(--ui-border);
           border-radius: 16px;
           font-size: 11px;
           animation: chipIn 0.2s ease;
@@ -1523,13 +1550,14 @@
           align-items: center;
           gap: 6px;
           padding: 4px 8px 4px 10px;
-          background: linear-gradient(135deg, #3b82f6, #2563eb);
-          color: #ffffff;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground) 20%, transparent);
+          color: var(--vscode-foreground);
+          border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 32%, var(--vscode-widget-border));
           border-radius: 16px;
           font-size: 11px;
           font-weight: 500;
           animation: chipIn 0.2s ease;
-          box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
+          box-shadow: none;
         }
 
         .mention-chip .mention-icon {
@@ -1766,8 +1794,8 @@
           justify-content: flex-start;
           gap: 6px;
           padding: 10px 14px;
-          background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 40%, transparent);
-          border: 1px solid var(--vscode-widget-border);
+          background: var(--ui-surface);
+          border: 1px solid var(--ui-border);
           border-radius: 10px;
           cursor: pointer;
           transition: all 0.2s ease;
@@ -1785,10 +1813,10 @@
         }
 
         .quick-card:hover {
-          background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 60%, transparent);
-          border-color: var(--vscode-focusBorder);
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+          background: var(--ui-hover);
+          border-color: var(--ui-border-strong);
+          transform: translateY(-1px);
+          box-shadow: 0 1px 0 color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent);
         }
 
         .quick-card:active {
@@ -1821,7 +1849,7 @@
 
         .quick-card-description {
           font-size: 11px;
-          opacity: 0.65;
+          opacity: 0.82;
           color: var(--vscode-descriptionForeground);
           line-height: 1.4;
         }
@@ -1857,12 +1885,12 @@
           display: inline-flex;
           align-items: center;
           padding: 6px 11px;
-          background: var(--vscode-textCodeBlock-background);
-          border: 1px solid var(--vscode-widget-border);
+          background: transparent;
+          border: 1px solid var(--ui-border);
           border-radius: 5px;
           cursor: pointer;
           transition: all 0.15s ease;
-          color: var(--vscode-foreground);
+          color: var(--ui-text-muted);
           font-size: 10px;
           font-family: var(--vscode-editor-font-family);
           font-weight: 500;
@@ -1871,9 +1899,9 @@
         }
 
         .snippet-btn:hover {
-          border-color: var(--vscode-focusBorder);
-          background: color-mix(in srgb, var(--vscode-textCodeBlock-background) 80%, var(--vscode-focusBorder) 20%);
-          transform: translateY(-1px);
+          border-color: var(--ui-border-strong);
+          color: var(--vscode-foreground);
+          background: var(--ui-hover);
         }
 
         .snippet-btn:active {

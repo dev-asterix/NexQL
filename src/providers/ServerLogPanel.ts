@@ -12,6 +12,7 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../services/ConnectionManager';
 import { SecretStorageService } from '../services/SecretStorageService';
+import { MODERN_WEBVIEW_BASE_CSS } from '../common/htmlStyles';
 
 export class ServerLogPanel {
   public static readonly viewType = 'pgStudio.serverLogViewer';
@@ -370,6 +371,7 @@ export class ServerLogPanel {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Server Log Viewer</title>
   <style>
+    ${MODERN_WEBVIEW_BASE_CSS}
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {

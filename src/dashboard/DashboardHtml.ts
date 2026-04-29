@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { DashboardStats } from '../common/types';
+import { MODERN_WEBVIEW_BASE_CSS } from '../common/htmlStyles';
 
 export async function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.Uri, stats: DashboardStats): Promise<string> {
   const nonce = getNonce();
@@ -52,20 +53,45 @@ function getNonce() {
 export function getErrorHtml(error: string) {
   return `<!DOCTYPE html>
     <html>
+      <head>
+        <style>${MODERN_WEBVIEW_BASE_CSS}</style>
+      </head>
         <body style="padding: 20px; color: #f87171; font-family: sans-serif;">
-            <h3>Dashboard Error</h3>
-            <p>Failed to load dashboard resources.</p>
-            <pre>${error}</pre>
+            <section class="pg-panel">
+              <header class="pg-panel-header">
+                <div>
+                  <h3 class="pg-panel-title">Dashboard Error</h3>
+                  <p class="pg-panel-subtitle">Failed to load dashboard resources.</p>
+                </div>
+              </header>
+              <div class="pg-panel-body">
+                <div class="pg-banner error"><strong>Load failure</strong> in dashboard template pipeline.</div>
+                <pre>${error}</pre>
+              </div>
+            </section>
         </body>
     </html>`;
 }
 
+/** Sentinel matched by DashboardPanel to swap loading shell for full dashboard (must stay in sync). */
+export const DASHBOARD_LOADING_SHELL_MARKER = 'data-pg-dashboard-loading="1"';
+
 export function getLoadingHtml(): string {
   return `<!DOCTYPE html>
-    <html>
-      <head><title>Loading</title></head>
-      <body style="display:flex;justify-content:center;align-items:center;height:100vh;background-color: var(--vscode-editor-background);color: var(--vscode-editor-foreground);font-family: var(--vscode-font-family);">
-        <h3 style="font-weight: normal;">Loading Dashboard...</h3>
+    <html ${DASHBOARD_LOADING_SHELL_MARKER}>
+      <head>
+        <title>Loading</title>
+        <style>${MODERN_WEBVIEW_BASE_CSS}</style>
+      </head>
+      <body style="display:flex;justify-content:center;align-items:center;min-height:100vh;">
+        <div class="pg-panel" style="width:min(560px, 92vw);">
+          <div class="pg-panel-body">
+            <div class="empty-state-simple">
+              <div class="skeleton skeleton-text" style="width: 120px;"></div>
+              <span>Loading dashboard metrics...</span>
+            </div>
+          </div>
+        </div>
       </body>
     </html>`;
 }

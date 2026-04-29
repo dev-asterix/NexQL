@@ -5,6 +5,30 @@ interface SafePostMessageOptions {
   notifyOnFailure?: boolean;
 }
 
+export interface HandlerResponseEnvelope<T = unknown> {
+  ok: boolean;
+  code: string;
+  remediation?: string;
+  data?: T;
+  error?: string;
+}
+
+export function okResponse<T>(
+  code: string,
+  data?: T,
+  remediation?: string,
+): HandlerResponseEnvelope<T> {
+  return { ok: true, code, data, ...(remediation ? { remediation } : {}) };
+}
+
+export function errorResponse(
+  code: string,
+  error: string,
+  remediation?: string,
+): HandlerResponseEnvelope {
+  return { ok: false, code, error, ...(remediation ? { remediation } : {}) };
+}
+
 /**
  * Sends a message to the webview and guards against closed/disposed panels.
  * Returns true only when the message was delivered successfully.

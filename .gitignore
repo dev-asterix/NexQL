@@ -28,5 +28,4 @@ docs/.next/
 .nycrc
 roadmap.md
 FIXES_APPLIED.md
-.cursor
-review-the-current-codebase-shimmering-bee.md
+.cursor/

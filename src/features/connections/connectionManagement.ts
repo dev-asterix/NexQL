@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ConnectionInfo, ConnectionFormPanel } from './connectionForm';
 import { SecretStorageService } from '../../services/SecretStorageService';
+import { MODERN_WEBVIEW_BASE_CSS } from '../../common/htmlStyles';
 
 export class ConnectionManagementPanel {
     public static currentPanel: ConnectionManagementPanel | undefined;
@@ -171,6 +172,7 @@ export class ConnectionManagementPanel {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Manage Connections</title>
             <style>
+                ${MODERN_WEBVIEW_BASE_CSS}
                 :root {
                     --bg-color: var(--vscode-editor-background);
                     --text-color: var(--vscode-editor-foreground);

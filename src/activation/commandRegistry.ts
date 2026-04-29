@@ -6,6 +6,7 @@ import { SavedQueriesTreeProvider } from '../providers/Phase7TreeProviders';
 import { NotebooksTreeProvider } from '../providers/NotebooksTreeProvider';
 import { cmdPasteTable } from '../commands/schema';
 import { getCommandSpecs } from './commandSpecs';
+import { TelemetryService } from '../services/TelemetryService';
 
 /**
  * Aggregates command specs and registers VS Code commands. Command IDs must stay stable (docs/API_STABILITY.md).
@@ -31,7 +32,14 @@ export function registerAllCommands(
 
   commands.forEach(({ command, callback }) => {
     try {
-      context.subscriptions.push(vscode.commands.registerCommand(command, callback as (...args: unknown[]) => void));
+      context.subscriptions.push(
+        vscode.commands.registerCommand(command, async (...args: unknown[]) => {
+          const telemetry = TelemetryService.getInstance();
+          const group = command.split('.')[1] ?? 'unknown';
+          telemetry.trackEvent('command_invoked', { group });
+          await Promise.resolve(callback(...args));
+        }),
+      );
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       outputChannel.appendLine(`Failed to register command ${command}: ${err}`);

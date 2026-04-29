@@ -5,6 +5,7 @@ import { WorkspaceStateService } from '../WorkspaceStateService';
 import { PostgresMetadata } from '../../common/types';
 import { DatabaseTreeItem } from '../../providers/DatabaseTreeProvider';
 import { ConnectionManager } from '../ConnectionManager';
+import { errorResponse, okResponse } from './messaging';
 
 export class ShowConnectionSwitcherHandler implements IMessageHandler {
   constructor(private statusBar: any) { }
@@ -599,12 +600,35 @@ export class GridCommitPreferenceHandler implements IMessageHandler {
         type: 'gridCommitPreferenceResponse',
         requestId: message.requestId,
         skipConfirm,
+        result: okResponse('GRID_COMMIT_PREF_FETCHED', { skipConfirm }),
       });
       return;
     }
 
     if (message.action === 'set' && typeof message.skipConfirm === 'boolean') {
       await this.extensionContext.globalState.update(SKIP_GRID_COMMIT_CONFIRM_KEY, message.skipConfirm);
+      if (context.postMessage) {
+        await context.postMessage({
+          type: 'gridCommitPreferenceResponse',
+          requestId: message.requestId,
+          skipConfirm: message.skipConfirm,
+          result: okResponse('GRID_COMMIT_PREF_UPDATED', { skipConfirm: message.skipConfirm }),
+        });
+      }
+      return;
+    }
+
+    if (context.postMessage) {
+      await context.postMessage({
+        type: 'gridCommitPreferenceResponse',
+        requestId: message.requestId,
+        skipConfirm: false,
+        result: errorResponse(
+          'GRID_COMMIT_PREF_INVALID_REQUEST',
+          'Invalid gridCommitPreference action payload.',
+          'Use action "get" with requestId or action "set" with skipConfirm boolean.',
+        ),
+      });
     }
   }
 }

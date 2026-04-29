@@ -5,10 +5,9 @@ import { ConnectionManager } from '../services/ConnectionManager';
 import { getSchemaCache, SchemaCache } from '../lib/schema-cache';
 import { Debouncer } from '../lib/debounce';
 import { AutoRefreshService } from '../services/AutoRefreshService';
+import { buildTreeItemKey, buildTreeItemKeyFromParts } from './tree/treeItemKey';
 
-function buildItemKey(item: DatabaseTreeItem): string {
-  return [item.type, item.connectionId || '', item.databaseName || '', item.schema || '', item.label].join(':');
-}
+const buildItemKey = buildTreeItemKey;
 
 const SYSTEM_DATABASES = new Set(['postgres', 'template0', 'template1']);
 
@@ -155,7 +154,7 @@ export class DatabaseTreeProvider implements vscode.TreeDataProvider<DatabaseTre
   }
 
   private isFavoriteItem(type: string, connectionId?: string, databaseName?: string, schema?: string, name?: string): boolean {
-    const key = `${type}:${connectionId || ''}:${databaseName || ''}:${schema || ''}:${name || ''} `;
+    const key = buildTreeItemKeyFromParts(type, connectionId, databaseName, schema, name);
     return this._favorites.has(key);
   }
 

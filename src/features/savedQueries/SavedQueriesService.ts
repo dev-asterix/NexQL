@@ -32,6 +32,12 @@ export interface SavedQuery {
   isTemplate?: boolean;
 }
 
+export interface SavedQueryImportResult {
+  imported: number;
+  updated: number;
+  skipped: number;
+}
+
 /**
  * Manages saved queries for quick reuse across sessions.
  * Persists in VS Code workspace memento (workspace-local storage).
@@ -197,12 +203,52 @@ export class SavedQueriesService {
   /**
    * Import queries from JSON.
    */
-  async importQueries(jsonData: string): Promise<void> {
+  async importQueries(jsonData: string): Promise<SavedQueryImportResult> {
     try {
       const imported = JSON.parse(jsonData) as SavedQuery[];
-      for (const query of imported) {
-        await this.saveQuery(query);
+      if (!Array.isArray(imported)) {
+        throw new Error('Expected an array of saved queries.');
       }
+      let importedCount = 0;
+      let updatedCount = 0;
+      let skippedCount = 0;
+      const byTitle = new Map(
+        Array.from(this.queries.values()).map((q) => [q.title.trim().toLowerCase(), q]),
+      );
+      for (const query of imported) {
+        if (!query || typeof query.query !== 'string' || typeof query.title !== 'string') {
+          skippedCount++;
+          continue;
+        }
+        const normalizedTitle = query.title.trim().toLowerCase();
+        const existingById = query.id ? this.queries.get(query.id) : undefined;
+        const existingByTitle = byTitle.get(normalizedTitle);
+        if (existingById) {
+          await this.updateQuery({
+            ...existingById,
+            ...query,
+            id: existingById.id,
+          });
+          updatedCount++;
+          continue;
+        }
+        if (existingByTitle) {
+          await this.updateQuery({
+            ...existingByTitle,
+            ...query,
+            id: existingByTitle.id,
+          });
+          updatedCount++;
+          continue;
+        }
+        await this.saveQuery(query);
+        importedCount++;
+        const saved = query.id ? this.queries.get(query.id) : undefined;
+        if (saved) {
+          byTitle.set(normalizedTitle, saved);
+        }
+      }
+      return { imported: importedCount, updated: updatedCount, skipped: skippedCount };
     } catch (error) {
       throw new Error(`Failed to import queries: ${error instanceof Error ? error.message : String(error)}`);
     }

@@ -25,6 +25,8 @@ import { SendToChatHandler } from '../services/handlers/ExplainHandlers';
 import { FkLookupHandler } from '../services/handlers/FkLookupHandler';
 import { CursorWindowHandler } from '../services/handlers/CursorWindowHandler';
 import { InsertRowHandler } from '../services/handlers/InsertRowHandler';
+import { TelemetryService } from '../services/TelemetryService';
+import { WEBVIEW_MESSAGE_TYPES } from '../common/messageTypes';
 
 export class PostgresKernel implements vscode.Disposable {
   readonly id = 'postgres-kernel';
@@ -81,7 +83,7 @@ export class PostgresKernel implements vscode.Disposable {
     registry.register('execute_update_background', new ExecuteUpdateBackgroundHandler());
     registry.register('script_delete', new ScriptDeleteHandler());
     registry.register('execute_update', new ExecuteUpdateHandler());
-    registry.register('export_request', new ExportRequestHandler());
+    registry.register(WEBVIEW_MESSAGE_TYPES.EXPORT_REQUEST, new ExportRequestHandler());
     registry.register('import_request', new ImportRequestHandler());
     registry.register('import_pick_file', new ImportPickFileHandler());
     registry.register('openImportData', new OpenImportDataHandler());
@@ -90,12 +92,15 @@ export class PostgresKernel implements vscode.Disposable {
     registry.register('sendToChat', new SendToChatHandler(undefined));
 
     registry.register('saveChanges', new SaveChangesHandler());
-    registry.register('showErrorMessage', new ShowErrorMessageHandler());
-    registry.register('runDerivedQuery', new RunDerivedQueryHandler());
+    registry.register(WEBVIEW_MESSAGE_TYPES.SHOW_ERROR_MESSAGE, new ShowErrorMessageHandler());
+    registry.register(WEBVIEW_MESSAGE_TYPES.RUN_DERIVED_QUERY, new RunDerivedQueryHandler());
     registry.register('fkLookup', new FkLookupHandler());
     registry.register('resultCursorFetch', new CursorWindowHandler());
     registry.register('insertRow', new InsertRowHandler());
-    registry.register('gridCommitPreference', new GridCommitPreferenceHandler(context));
+    registry.register(
+      WEBVIEW_MESSAGE_TYPES.GRID_COMMIT_PREFERENCE,
+      new GridCommitPreferenceHandler(context),
+    );
     registry.register('notebookOutputToolbar', new NotebookOutputToolbarHandler());
 
     (this._controller as any).onDidReceiveMessage(async (event: any) => {
@@ -176,6 +181,11 @@ export class PostgresKernel implements vscode.Disposable {
   }
 
   private async _executeAll(cells: vscode.NotebookCell[], _notebook: vscode.NotebookDocument, _controller: vscode.NotebookController): Promise<void> {
+    const telemetry = TelemetryService.getInstance();
+    telemetry.trackEvent('feature_used', { feature: 'notebook' });
+    telemetry.trackEvent('notebook_executed', {
+      cellCountBucket: cells.length < 5 ? 'lt_5' : cells.length < 20 ? '5_19' : 'gte_20',
+    });
     for (const cell of cells) {
       await this._executor.executeCell(cell);
     }

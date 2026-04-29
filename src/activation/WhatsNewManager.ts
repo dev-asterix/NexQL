@@ -35,6 +35,7 @@ export class WhatsNewManager {
       column,
       {
         enableScripts: true,
+        enableCommandUris: true,
         localResourceRoots: [
           vscode.Uri.joinPath(this.extensionUri, 'resources'),
           vscode.Uri.joinPath(this.extensionUri, 'out')

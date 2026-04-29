@@ -156,6 +156,41 @@ Then: **PostgreSQL icon** → **Add Connection** → Enter details → **Connect
 
 ---
 
+## Telemetry Setup
+
+PgStudio ships with a privacy-first telemetry client designed for anonymous product analytics.
+
+- No SQL text, schema/object names, hostnames, database names, usernames, or credentials are collected.
+- VS Code global telemetry setting is a hard gate; when disabled globally, PgStudio telemetry is disabled.
+- Event payloads are allowlisted and bucketed (durations/result sizes) to avoid raw sensitive values.
+
+### Configure telemetry mode
+
+Set these in VS Code settings:
+
+- `postgresExplorer.telemetry.mode`: `off | basic | detailed` (default `basic`)
+- `postgresExplorer.telemetry.allowUsage`: allow anonymous usage counters (default `true`)
+- `postgresExplorer.telemetry.allowPerformance`: allow anonymized performance buckets (default `false`)
+
+### Configure PostHog sink (optional)
+
+For remote telemetry ingestion:
+
+- `postgresExplorer.telemetry.posthogHost`: default `https://us.i.posthog.com`
+- `postgresExplorer.telemetry.posthogApiKey`: your PostHog project key
+
+If `posthogApiKey` is empty, telemetry stays local (debug sink only).
+
+### What to expect from telemetry
+
+- Lifecycle: extension/session start and end events
+- Activity: command and feature usage counters
+- Connections: opened/closed/error with coarse error category
+- Query execution: success/failure with duration/result-size buckets (detailed/performance-enabled mode)
+- AI usage: provider-level success/failure counters
+
+---
+
 ## 📚 Documentation Map
 
 - `README.md` - Product overview, installation, development, and troubleshooting

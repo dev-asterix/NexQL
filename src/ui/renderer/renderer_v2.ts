@@ -2085,25 +2085,18 @@ export const activate: ActivationFunction = (context) => {
 
       const outputRoot = document.createElement('div');
       outputRoot.setAttribute('data-pg-output-hover-root', 'true');
-      outputRoot.style.cssText = 'position:relative;';
+      outputRoot.style.cssText = 'position:relative;display:flex;flex-direction:column;';
 
       const hoverToolbar = document.createElement('div');
       hoverToolbar.setAttribute('role', 'toolbar');
       hoverToolbar.setAttribute('aria-label', 'Result quick actions');
       hoverToolbar.style.cssText = `
-        position:absolute;
-        top:10px;
-        right:12px;
-        z-index:35;
         display:flex;
         flex-wrap:wrap;
         justify-content:flex-end;
         align-items:center;
         gap:6px;
-        max-width:min(420px, calc(100% - 20px));
-        opacity:0;
-        pointer-events:none;
-        transition:opacity 0.18s ease;
+        max-width:min(680px, 100%);
         padding:5px 8px;
         border-radius:10px;
         background:color-mix(in srgb, var(--vscode-editor-background) 86%, transparent);
@@ -2111,24 +2104,41 @@ export const activate: ActivationFunction = (context) => {
         box-shadow:0 4px 18px rgba(0,0,0,0.1);
         backdrop-filter:blur(10px);
       `;
-      if (prefersReducedMotion()) {
-        hoverToolbar.style.transition = 'none';
-      }
 
-      const setToolbarVisible = (v: boolean): void => {
-        hoverToolbar.style.opacity = v ? '1' : '0';
-        hoverToolbar.style.pointerEvents = v ? 'auto' : 'none';
+      const toolbarDock = document.createElement('div');
+      toolbarDock.style.cssText = `
+        display:flex;
+        flex-direction:column;
+        align-items:flex-end;
+        gap:6px;
+        position:absolute;
+        right:10px;
+        top:-30px;
+        z-index:34;
+      `;
+      const toolbarToggle = document.createElement('button');
+      toolbarToggle.type = 'button';
+      fillOutputHoverToolButton(toolbarToggle, 'sparkles', 'AI actions');
+      toolbarToggle.style.padding = '5px 12px';
+      toolbarToggle.style.fontSize = '11px';
+      const toggleChevron = document.createElement('span');
+      toggleChevron.style.cssText = 'font-size:11px;line-height:1;opacity:0.85;';
+      toggleChevron.textContent = '▸';
+      toolbarToggle.appendChild(toggleChevron);
+
+      let toolbarCollapsed = true;
+      const updateToolbarVisibility = (): void => {
+        hoverToolbar.style.display = toolbarCollapsed ? 'none' : 'flex';
+        toolbarToggle.setAttribute('aria-expanded', toolbarCollapsed ? 'false' : 'true');
+        toolbarToggle.title = toolbarCollapsed ? 'Show result AI actions' : 'Hide result AI actions';
+        toggleChevron.textContent = toolbarCollapsed ? '▸' : '▾';
       };
-      outputRoot.addEventListener('mouseenter', () => setToolbarVisible(true));
-      outputRoot.addEventListener('mouseleave', () => setToolbarVisible(false));
-      outputRoot.addEventListener('focusin', () => setToolbarVisible(true));
-      outputRoot.addEventListener('focusout', (e) => {
-        const next = e.relatedTarget as Node | null;
-        if (next && outputRoot.contains(next)) {
-          return;
-        }
-        setToolbarVisible(false);
+      toolbarToggle.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        toolbarCollapsed = !toolbarCollapsed;
+        updateToolbarVisibility();
       });
+      updateToolbarVisibility();
 
       const addHoverTool = (
         glyph: ResultToolbarGlyph,
@@ -2160,6 +2170,37 @@ export const activate: ActivationFunction = (context) => {
       const queryTrimmed = (query || '').trim();
       const cellLinked = sourceCellIndex >= 0;
 
+      addHoverTool(
+        'menuChat',
+        'Add to chat',
+        () => {
+          const resultsJson = buildChatResultsSampleJson(
+            columns,
+            currentRows,
+            CHAT_SEND_SAMPLE_ROW_CAP,
+          );
+          context.postMessage?.({
+            type: 'sendToChat',
+            data: {
+              query: queryTrimmed,
+              ...(resultsJson ? { results: resultsJson } : {}),
+              ...(noticeItems.length > 0
+                ? { notices: noticeItems.map(n => (n.message || '').trim()).filter(Boolean) }
+                : {}),
+              message:
+                currentRows.length === 0
+                  ? 'I ran this query. No rows were returned. Help me validate the query intent and next checks.'
+                  : `I ran this query. The attachment includes at most ${CHAT_SEND_SAMPLE_ROW_CAP} sample rows from the result (not the full grid). Help me interpret it.`,
+            },
+          });
+        },
+        {
+          disabled: !queryTrimmed,
+          title: queryTrimmed
+            ? 'Attach SQL and sampled result rows to SQL Assistant'
+            : 'No query text',
+        },
+      );
       addHoverTool(
         'menuBolt',
         'Optimize',
@@ -2220,7 +2261,9 @@ export const activate: ActivationFunction = (context) => {
       );
 
       outputRoot.appendChild(mainContainer);
-      outputRoot.appendChild(hoverToolbar);
+      toolbarDock.appendChild(toolbarToggle);
+      toolbarDock.appendChild(hoverToolbar);
+      outputRoot.appendChild(toolbarDock);
       element.appendChild(outputRoot);
 
       // Transaction state: show banner and amber gutter

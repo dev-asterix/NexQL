@@ -34,11 +34,35 @@ const sparklineOptions = {
 };
 
 const HARD_HISTORY_LIMIT = 720;
+
+/** Unused-index severity thresholds (MB). Initialized early: startup calls updateDashboard before later script runs (avoids TDZ). */
+const UNUSED_INDEX_WARN_MB = 10;
+const UNUSED_INDEX_CRIT_MB = 50;
+
 let refreshIntervalMs = 15000;
 let historyMinutes = 15;
 let refreshIntervalId;
 let expandedQueryPid = null;
 let selectedPidFilter = null;
+let aiPanel = null;
+let aiToggleBtn = null;
+let aiCloseBtn = null;
+let aiClearBtn = null;
+let aiSendBtn = null;
+let aiQuestionInput = null;
+let aiResponseArea = null;
+let aiAutoNotify = null;
+
+function cacheAiDomRefs() {
+  aiPanel = aiPanel || document.getElementById('ai-panel');
+  aiToggleBtn = aiToggleBtn || document.getElementById('ai-toggle-btn');
+  aiCloseBtn = aiCloseBtn || document.getElementById('ai-panel-close');
+  aiClearBtn = aiClearBtn || document.getElementById('ai-clear-btn');
+  aiSendBtn = aiSendBtn || document.getElementById('ai-send-btn');
+  aiQuestionInput = aiQuestionInput || document.getElementById('ai-question');
+  aiResponseArea = aiResponseArea || document.getElementById('ai-response-area');
+  aiAutoNotify = aiAutoNotify || document.getElementById('ai-auto-notify');
+}
 
 const timeLabels = [];
 const tpsHistory = [];
@@ -1564,8 +1588,30 @@ function jumpToLocks() {
   if (el) el.scrollIntoView({ behavior: 'smooth' });
 }
 
+function _closestFromTarget(target, selector) {
+  if (!target || typeof target.closest !== 'function') return null;
+  return target.closest(selector);
+}
+
+function _findInEventPath(event, selector) {
+  if (event && typeof event.composedPath === 'function') {
+    const path = event.composedPath();
+    for (const node of path) {
+      if (node && typeof node.matches === 'function' && node.matches(selector)) {
+        return node;
+      }
+    }
+  }
+  return _closestFromTarget(event ? event.target : null, selector);
+}
+
 document.addEventListener('click', event => {
-  const target = event.target.closest('[data-action], [id^="count-"], #tps-card, .interactive, .back-link, .btn-action');
+  /* Brain buttons live inside .interactive tiles; don't treat the click as "tile" navigation. */
+  if (_findInEventPath(event, '.card-ai-btn')) {
+    return;
+  }
+
+  const target = _findInEventPath(event, '[data-action], [id^="count-"], #tps-card, .interactive, .back-link, .btn-action');
   if (!target) return;
 
   const action = target.getAttribute('data-action');
@@ -1725,6 +1771,72 @@ function updateConnectionsByApp(connectionsByApp) {
 
 // ── Schema Health Tab ────────────────────────────────────────────────
 
+function unusedIndexSeverityMb(rawBytes) {
+  const mb = Number(rawBytes || 0) / (1024 * 1024);
+  const sev = mb > UNUSED_INDEX_CRIT_MB ? 'crit' : mb > UNUSED_INDEX_WARN_MB ? 'warn' : 'ok';
+  const label = sev === 'crit' ? 'Large' : sev === 'warn' ? 'Medium' : 'Small';
+  return { mb, sev, label };
+}
+
+function unusedIndexRowHtml(idx) {
+  const { sev, label } = unusedIndexSeverityMb(idx.raw_size);
+  const badge = `<span class="schema-badge ${sev}">${label}</span>`;
+  return `<tr class="${sev !== 'ok' ? 'row-' + sev : ''}">
+      <td class="mono" style="font-size:11px;">${escHtml(idx.index_name)}</td>
+      <td>${escHtml(idx.table_name)}</td>
+      <td style="text-align:right;">${escHtml(idx.index_size)}</td>
+      <td style="text-align:center;">${badge}</td>
+    </tr>`;
+}
+
+function renderUnusedIndexes(indexes) {
+  const root = document.querySelector('#unused-indexes-content');
+  if (!root) return;
+
+  const thead = `<thead><tr>
+      <th>Index</th>
+      <th>Table</th>
+      <th style="width: 100px; text-align: right;">Size</th>
+      <th style="width: 80px; text-align: center;">Severity</th>
+    </tr></thead>`;
+
+  if (!indexes.length) {
+    root.innerHTML =
+      '<div class="unused-indexes-empty-note" style="color:var(--success-color);">No non-constraint unused indexes detected.</div>';
+    return;
+  }
+
+  const warnBytes = UNUSED_INDEX_WARN_MB * 1024 * 1024;
+  const attention = indexes.filter((idx) => Number(idx.raw_size || 0) > warnBytes);
+  const lowImpact = indexes.filter((idx) => Number(idx.raw_size || 0) <= warnBytes);
+
+  attention.sort((a, b) => Number(b.raw_size || 0) - Number(a.raw_size || 0));
+  lowImpact.sort((a, b) => Number(b.raw_size || 0) - Number(a.raw_size || 0));
+
+  let html = '';
+
+  html += '<div class="table-container unused-indexes-scroll">';
+  html += `<table id="unused-indexes-table">${thead}<tbody>`;
+  if (attention.length) {
+    html += attention.map(unusedIndexRowHtml).join('');
+  } else {
+    html += `<tr><td colspan="4" class="unused-indexes-empty-note">No medium or large unused indexes (&gt; ${UNUSED_INDEX_WARN_MB} MB each). Primary list shows attention-worthy waste only.</td></tr>`;
+  }
+  html += '</tbody></table></div>';
+
+  if (lowImpact.length) {
+    const n = lowImpact.length;
+    html += '<details class="unused-indexes-details">';
+    html += `<summary>${n} low-impact unused index${n === 1 ? '' : 'es'} (≤ ${UNUSED_INDEX_WARN_MB} MB each) — expand to list</summary>`;
+    html += '<div class="table-container unused-indexes-scroll">';
+    html += `<table class="unused-indexes-table-low">${thead}<tbody>`;
+    html += lowImpact.map(unusedIndexRowHtml).join('');
+    html += '</tbody></table></div></details>';
+  }
+
+  root.innerHTML = html;
+}
+
 function updateSchemaHealth(stats) {
   pushWithLimit(schemaHealthHistory.unusedIndexes, (stats.unusedIndexes || []).length);
   pushWithLimit(schemaHealthHistory.highSeqScanTables, (stats.highSeqScanTables || []).length);
@@ -1754,26 +1866,6 @@ function updateSchemaHealthTrendNote() {
   const vacuumDelta = delta(schemaHealthHistory.vacuumAttentionTables);
 
   note.textContent = `Trend: unused indexes ${unusedDelta >= 0 ? '+' : ''}${unusedDelta}, high seq-scan tables ${seqDelta >= 0 ? '+' : ''}${seqDelta}, dead-tuple pressure tables ${deadDelta >= 0 ? '+' : ''}${deadDelta}, vacuum-attention tables ${vacuumDelta >= 0 ? '+' : ''}${vacuumDelta}`;
-}
-
-function renderUnusedIndexes(indexes) {
-  const tbody = document.querySelector('#unused-indexes-table tbody');
-  if (!tbody) return;
-  if (!indexes.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--success-color);padding:20px;">No non-constraint unused indexes detected.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = indexes.map(idx => {
-    const rawMb = idx.raw_size / (1024 * 1024);
-    const sev = rawMb > 50 ? 'crit' : rawMb > 10 ? 'warn' : 'ok';
-    const badge = `<span class="schema-badge ${sev}">${sev === 'crit' ? 'Large' : sev === 'warn' ? 'Medium' : 'Small'}</span>`;
-    return `<tr class="${sev !== 'ok' ? 'row-' + sev : ''}">
-      <td class="mono" style="font-size:11px;">${escHtml(idx.index_name)}</td>
-      <td>${escHtml(idx.table_name)}</td>
-      <td style="text-align:right;">${escHtml(idx.index_size)}</td>
-      <td style="text-align:center;">${badge}</td>
-    </tr>`;
-  }).join('');
 }
 
 function renderHighSeqScan(tables) {
@@ -1878,22 +1970,17 @@ function renderTablesNeedingVacuum(tables) {
 
 let currentStats = null;
 
-const aiPanel = document.getElementById('ai-panel');
-const aiToggleBtn = document.getElementById('ai-toggle-btn');
-const aiCloseBtn = document.getElementById('ai-panel-close');
-const aiClearBtn = document.getElementById('ai-clear-btn');
-const aiSendBtn = document.getElementById('ai-send-btn');
-const aiQuestionInput = document.getElementById('ai-question');
-const aiResponseArea = document.getElementById('ai-response-area');
-const aiAutoNotify = document.getElementById('ai-auto-notify');
+cacheAiDomRefs();
 
 function openAiPanel() {
+  cacheAiDomRefs();
   if (!aiPanel) return;
   aiPanel.classList.add('open');
   document.body.classList.add('ai-panel-open');
 }
 
 function closeAiPanel() {
+  cacheAiDomRefs();
   if (!aiPanel) return;
   aiPanel.classList.remove('open');
   document.body.classList.remove('ai-panel-open');
@@ -2617,6 +2704,8 @@ function _parseAiMarkdown(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 }
 
+cacheAiDomRefs();
+
 if (aiToggleBtn) {
   aiToggleBtn.addEventListener('click', () => {
     if (aiPanel && aiPanel.classList.contains('open')) {
@@ -2664,16 +2753,18 @@ document.querySelectorAll('.ai-chip').forEach(btn => {
 });
 
 document.addEventListener('click', e => {
-  const btn = e.target.closest('.card-ai-btn');
+  const btn = _findInEventPath(e, '.card-ai-btn');
   if (btn) {
+    e.preventDefault();
     e.stopPropagation();
     const metric = btn.dataset.metric;
     const prompt = metricPromptMap[metric] || `Analyze the ${metric} metric and explain what I should know.`;
     sendAiQuestion(prompt);
+    return;
   }
 
   // Copy button inside AI code blocks
-  const copyBtn = e.target.closest('.ai-copy-btn');
+  const copyBtn = _findInEventPath(e, '.ai-copy-btn');
   if (copyBtn) {
     const codeId = copyBtn.dataset.codeId;
     const codeEl = codeId && document.getElementById(codeId);

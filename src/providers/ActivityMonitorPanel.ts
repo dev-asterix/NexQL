@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { SecretStorageService } from '../services/SecretStorageService';
 import { ConnectionManager } from '../services/ConnectionManager';
+import { MODERN_WEBVIEW_BASE_CSS } from '../common/htmlStyles';
 
 /**
  * pg_activity Real-Time Monitor Panel (Phase 6.2)
@@ -192,6 +193,7 @@ ORDER BY duration_seconds DESC NULLS LAST
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Activity Monitor</title>
   <style>
+    ${MODERN_WEBVIEW_BASE_CSS}
     *, *::before, *::after { box-sizing: border-box; }
 
     body {

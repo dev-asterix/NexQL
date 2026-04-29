@@ -1,7 +1,7 @@
 import { Client, PoolClient } from 'pg';
 import * as vscode from 'vscode';
 import { fetchStats, DashboardStats } from './DashboardData';
-import { getErrorHtml, getHtmlForWebview, getLoadingHtml } from './DashboardHtml';
+import { DASHBOARD_LOADING_SHELL_MARKER, getErrorHtml, getHtmlForWebview, getLoadingHtml } from './DashboardHtml';
 import { ConnectionManager } from '../services/ConnectionManager';
 import { ConnectionConfig } from '../common/types';
 import { createMetadata, createAndShowNotebook } from '../commands/connection';
@@ -18,6 +18,8 @@ export class DashboardPanel {
   private _autoNotifyEnabled = false;
   private _lastHealthCritical = false;
   private _conversationMessages: ChatMessage[] = [];
+  private _lastSuccessfulRefreshAt = 0;
+  private _staleWarningShown = false;
 
   private constructor(panel: vscode.WebviewPanel, private readonly config: ConnectionConfig, private readonly dbName: string, panelKey: string, private readonly extensionUri: vscode.Uri) {
     this._panel = panel;
@@ -494,9 +496,16 @@ IMPORTANT: When the user sends a bare number (1, 2, or 3), treat it as selecting
       client = await this.getClient();
       const stats = await fetchStats(client as unknown as Client, this.dbName);
       this._lastStats = stats;
+      this._lastSuccessfulRefreshAt = Date.now();
+      this._staleWarningShown = false;
       this._panel.webview.postMessage({ command: 'updateStats', stats });
-      // If it's the first load, set the HTML
-      if (this._panel.webview.html.includes('Loading Dashboard...')) {
+      this._panel.webview.postMessage({
+        command: 'dashboardFreshness',
+        stale: false,
+        lastSuccessfulRefreshAt: this._lastSuccessfulRefreshAt,
+      });
+      // First paint uses a script-free loading shell; replace it once stats are ready so scripts run and JSON bootstraps the UI.
+      if (this._panel.webview.html.includes(DASHBOARD_LOADING_SHELL_MARKER)) {
         this._panel.webview.html = await getHtmlForWebview(this._panel.webview, this.extensionUri, stats);
       }
       // Auto-notify if enabled and health newly turned critical
@@ -511,8 +520,28 @@ IMPORTANT: When the user sends a bare number (1, 2, or 3), treat it as selecting
         this._lastHealthCritical = nowCritical;
       }
     } catch (error: any) {
+      const staleMs =
+        this._lastSuccessfulRefreshAt > 0 ? Date.now() - this._lastSuccessfulRefreshAt : 0;
+      const stale =
+        this._lastSuccessfulRefreshAt === 0 || staleMs >= 60_000;
+      this._panel.webview.postMessage({
+        command: 'dashboardFreshness',
+        stale,
+        staleMs,
+        lastSuccessfulRefreshAt: this._lastSuccessfulRefreshAt || null,
+      });
+      if (stale && !this._staleWarningShown) {
+        this._staleWarningShown = true;
+        vscode.window.showWarningMessage(
+          `Dashboard data may be stale for ${this.dbName}. Last successful refresh was ${
+            this._lastSuccessfulRefreshAt
+              ? `${Math.round(staleMs / 1000)}s ago`
+              : 'never'
+          }.`,
+        );
+      }
       // Only show error if we haven't loaded the UI yet, otherwise send error message
-      if (this._panel.webview.html.includes('Loading Dashboard...')) {
+      if (this._panel.webview.html.includes(DASHBOARD_LOADING_SHELL_MARKER)) {
         this._panel.webview.html = getErrorHtml(error.message);
       } else {
         // Could send error toast to webview here

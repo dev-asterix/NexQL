@@ -6,6 +6,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { ChatMessage } from './types';
 import { SecretStorageService } from '../../services/SecretStorageService';
+import { TelemetryService } from '../../services/TelemetryService';
 
 // GitHub Models permission applies to fine-grained tokens/GitHub Apps.
 // For VS Code OAuth sessions, request no explicit scope.
@@ -13,6 +14,15 @@ const GITHUB_MODELS_SCOPES: string[] = [];
 const GITHUB_MODELS_API_BASE = 'https://models.github.ai';
 const GITHUB_MODELS_API_VERSION = '2026-03-10';
 const DEFAULT_GITHUB_MODEL = 'openai/gpt-4.1';
+const DIRECT_API_PROVIDERS = new Set([
+  'openai',
+  'anthropic',
+  'gemini',
+  'custom',
+  'ollama',
+  'lmstudio',
+  'github',
+]);
 
 /** Heuristic for VS Code LM when the host does not report token usage (UI hint only). */
 const ROUGH_CHARS_PER_TOKEN = 4;
@@ -231,6 +241,7 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
   }
 
   async callVsCodeLm(userMessage: string, config: vscode.WorkspaceConfiguration, customSystemPrompt?: string): Promise<{ text: string, usage?: string }> {
+    const telemetry = TelemetryService.getInstance();
     const configuredModel = config.get<string>('aiModel');
     let models: vscode.LanguageModelChat[];
 
@@ -418,6 +429,7 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
         usageStr = AiService._roughTokenEstimateLabel(promptChars, responseText.length);
       }
 
+      telemetry.trackEvent('ai_request', { provider: 'vscode-lm', success: true });
       return { text: responseText, usage: usageStr };
     } finally {
       // Clean up cancellation token source
@@ -757,6 +769,13 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
   }
 
   async callDirectApi(provider: string, userMessage: string, config: vscode.WorkspaceConfiguration, customSystemPrompt?: string): Promise<{ text: string, usage?: string }> {
+    const telemetry = TelemetryService.getInstance();
+    if (!DIRECT_API_PROVIDERS.has(provider)) {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
+    if (!userMessage || !userMessage.trim()) {
+      throw new Error('User message is required for AI requests.');
+    }
     const apiKey = await this._getDirectApiKey(config);
     const githubSession = provider === 'github' ? await this._getGitHubSession() : undefined;
     
@@ -930,11 +949,16 @@ The UI will automatically parse this and show clickable suggestion bubbles.`;
         messages,
         temperature: 0.7
       };
-    } else {
-      throw new Error(`Unsupported provider: ${provider}`);
     }
 
-    return this._makeHttpRequestWithRetry(endpoint, headers, body, provider);
+    try {
+      const response = await this._makeHttpRequestWithRetry(endpoint, headers, body, provider);
+      telemetry.trackEvent('ai_request', { provider, success: true });
+      return response;
+    } catch (error) {
+      telemetry.trackEvent('ai_request', { provider, success: false });
+      throw error;
+    }
   }
 
   private async _makeHttpRequestWithRetry(

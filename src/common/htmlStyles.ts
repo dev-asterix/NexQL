@@ -132,6 +132,101 @@ export const SHARED_WEBVIEW_CSS = `
 .row-action-btn.danger:hover { background: color-mix(in srgb, var(--vscode-errorForeground) 12%, transparent); }
 `;
 
+/** Core panel shell styles used by non-notebook webviews. */
+export const MODERN_WEBVIEW_BASE_CSS = `
+${SHARED_WEBVIEW_CSS}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+body { padding: var(--sp-4); }
+
+.pg-panel {
+  border: 1px solid var(--vscode-widget-border);
+  border-top: 2px solid var(--vscode-textLink-foreground);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vscode-editor-background) 92%, transparent);
+  overflow: hidden;
+}
+
+.pg-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+  background: color-mix(in srgb, var(--vscode-editor-background) 84%, transparent);
+}
+
+.pg-panel-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pg-panel-subtitle {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.pg-panel-body {
+  padding: 12px;
+}
+
+.pg-banner {
+  margin: 0 0 var(--sp-4);
+  border-radius: 4px;
+  border-left: 3px solid var(--vscode-textLink-foreground);
+  padding: 8px 12px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--vscode-textLink-foreground) 12%, transparent);
+}
+
+.pg-banner.error {
+  border-left-color: var(--vscode-errorForeground);
+  background: color-mix(in srgb, var(--vscode-errorForeground) 12%, transparent);
+  color: var(--vscode-errorForeground);
+}
+
+.pg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.pg-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+  background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+}
+
+.pg-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.pg-muted {
+  color: var(--vscode-descriptionForeground);
+}
+`;
+
 /**
  * CSS Variables and Theme-aware styles
  */

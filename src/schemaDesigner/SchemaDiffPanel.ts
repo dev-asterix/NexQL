@@ -341,6 +341,9 @@ export class SchemaDiffPanel {
     const removed = diffs.filter(d => d.status === 'removed').length;
     const changed = diffs.filter(d => d.status === 'changed').length;
     const unchanged = diffs.filter(d => d.status === 'unchanged').length;
+    const destructiveRisk = removed;
+    const additiveRisk = added;
+    const metadataRisk = changed;
 
     const statusIcon: Record<DiffStatus, string> = {
       added: '🟢',
@@ -573,6 +576,9 @@ export class SchemaDiffPanel {
     <div class="stat"><span>🟢</span><span class="stat-count">${added}</span><span>Added</span></div>
     <div class="stat"><span>🔴</span><span class="stat-count">${removed}</span><span>Removed</span></div>
     <div class="stat"><span>⚪</span><span class="stat-count">${unchanged}</span><span>Unchanged</span></div>
+    <div class="stat"><span>🛑</span><span class="stat-count">${destructiveRisk}</span><span>Destructive</span></div>
+    <div class="stat"><span>➕</span><span class="stat-count">${additiveRisk}</span><span>Additive</span></div>
+    <div class="stat"><span>🛠</span><span class="stat-count">${metadataRisk}</span><span>Metadata</span></div>
     <div class="actions">
       <button class="btn btn-primary" onclick="generateMigration()">📄 Generate Migration Script</button>
     </div>

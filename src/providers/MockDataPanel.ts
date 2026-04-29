@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { DatabaseTreeItem } from '../providers/DatabaseTreeProvider';
 import { resolveTreeItemConnection } from '../schemaDesigner/connectionHelper';
 import { ErrorHandlers } from '../commands/helper';
+import { MODERN_WEBVIEW_BASE_CSS } from '../common/htmlStyles';
 
 interface ColumnInfo {
   column_name: string;
@@ -409,11 +410,12 @@ export class MockDataPanel {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mock Data Generator</title>
   <style>
+    ${MODERN_WEBVIEW_BASE_CSS}
     *, *::before, *::after { box-sizing: border-box; }
 
     body {
       font-family: var(--vscode-font-family);
-      font-size: var(--vscode-font-size);
+      font-size: 13px;
       color: var(--vscode-editor-foreground);
       background: var(--vscode-editor-background);
       margin: 0;
@@ -627,8 +629,14 @@ export class MockDataPanel {
   </style>
 </head>
 <body>
-  <h2>🎲 Mock Data Generator</h2>
-  <div class="subtitle">${escapeHtml(connName)} / ${escapeHtml(db)} — <strong>${escapeHtml(schema)}.${escapeHtml(table)}</strong></div>
+  <section class="pg-panel">
+    <header class="pg-panel-header">
+      <div>
+        <h2 class="pg-panel-title">Mock Data Generator</h2>
+        <div class="pg-panel-subtitle">${escapeHtml(connName)} / ${escapeHtml(db)} — <strong>${escapeHtml(schema)}.${escapeHtml(table)}</strong></div>
+      </div>
+    </header>
+    <div class="pg-panel-body">
 
   <div class="step-indicator">
     <div class="step-dot active" id="dot-1">1</div>
@@ -707,6 +715,8 @@ export class MockDataPanel {
       </button>
     </div>
   </div>
+    </div>
+  </section>
 
   <script>
     const vscode = acquireVsCodeApi();

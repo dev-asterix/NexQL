@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PgStudio (PostgreSQL Explorer)",
-  "version": "1.2.2",
+  "version": "1.2.3-nightly",
   "description": "PostgreSQL database explorer for VS Code with notebook support [Nightly]",
   "publisher": "ric-v",
   "private": false,
@@ -1144,6 +1144,27 @@
         "category": "PgStudio"
       },
       {
+        "command": "postgres-explorer.telemetry.openModePicker",
+        "title": "Set Telemetry Mode",
+        "icon": "$(pulse)",
+        "category": "PgStudio"
+      },
+      {
+        "command": "postgres-explorer.telemetry.setModeOff",
+        "title": "Telemetry: Off",
+        "category": "PgStudio"
+      },
+      {
+        "command": "postgres-explorer.telemetry.setModeBasic",
+        "title": "Telemetry: Basic",
+        "category": "PgStudio"
+      },
+      {
+        "command": "postgres-explorer.telemetry.setModeDetailed",
+        "title": "Telemetry: Detailed",
+        "category": "PgStudio"
+      },
+      {
         "command": "postgres-explorer.listTriggers",
         "title": "List Triggers",
         "category": "PgStudio"
@@ -1731,10 +1752,48 @@
           "default": 200,
           "description": "Number of rows per batch when streaming results"
         },
-        "postgresExplorer.telemetry.enabled": {
+        "postgresExplorer.telemetry.mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "basic",
+            "detailed"
+          ],
+          "default": "basic",
+          "description": "Telemetry collection mode. off disables telemetry. basic sends anonymous usage counters. detailed adds anonymized performance buckets."
+        },
+        "postgresExplorer.telemetry.allowUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow anonymous usage telemetry (commands/features/session counters)."
+        },
+        "postgresExplorer.telemetry.allowPerformance": {
           "type": "boolean",
           "default": false,
-          "description": "Enable performance telemetry (opt-in, privacy-first)"
+          "description": "Allow anonymized performance telemetry (duration/result-size buckets)."
+        },
+        "postgresExplorer.telemetry.flushIntervalMs": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "description": "Telemetry flush interval in milliseconds."
+        },
+        "postgresExplorer.telemetry.maxBatchSize": {
+          "type": "number",
+          "default": 25,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of events per telemetry batch."
+        },
+        "postgresExplorer.telemetry.posthogHost": {
+          "type": "string",
+          "default": "https://us.i.posthog.com",
+          "description": "PostHog ingestion host used for telemetry transport."
+        },
+        "postgresExplorer.telemetry.posthogApiKey": {
+          "type": "string",
+          "default": "phc_ok5KcqPzWKC52rJHJV8Q9ALQWPKQYukgPFJj56WP8s9N",
+          "description": "PostHog project API key. Keep empty to disable remote telemetry sink."
         },
         "postgresExplorer.queryTimeout": {
           "type": "number",
@@ -3181,7 +3240,7 @@
     "clean:coverage": "node ./scripts/clean-coverage.js",
     "precoverage:report": "npm run merge:coverage",
     "merge:coverage": "node ./scripts/merge-coverage.js",
-    "coverage:phased": "npm run coverage:phase-utils && npm run coverage:phase-handlers && npm run coverage:report",
+    "coverage:phased": "npm run coverage:phase-utils && npm run coverage:phase-handlers && node ./scripts/merge-coverage.js && npm run coverage:report",
     "coverage:report": "npx c8 report --temp-directory ./.nyc_output --config .c8rc.phase-report.json --reporter=html --reporter=text"
   },
   "dependencies": {

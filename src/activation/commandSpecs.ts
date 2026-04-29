@@ -55,6 +55,7 @@ import {
 } from '../commands/phase7';
 import { SavedQueriesTreeProvider } from '../providers/Phase7TreeProviders';
 import { pickQueryHistory } from '../commands/pickQueryHistory';
+import { setTelemetryMode, showTelemetryModePicker } from '../commands/telemetryMode';
 
 // Visual Schema Design
 import {
@@ -142,6 +143,22 @@ export function getCommandSpecs(
     {
       command: 'postgres-explorer.pickQueryHistory',
       callback: () => pickQueryHistory()
+    },
+    {
+      command: 'postgres-explorer.telemetry.openModePicker',
+      callback: () => showTelemetryModePicker()
+    },
+    {
+      command: 'postgres-explorer.telemetry.setModeOff',
+      callback: () => setTelemetryMode('off')
+    },
+    {
+      command: 'postgres-explorer.telemetry.setModeBasic',
+      callback: () => setTelemetryMode('basic')
+    },
+    {
+      command: 'postgres-explorer.telemetry.setModeDetailed',
+      callback: () => setTelemetryMode('detailed')
     },
     {
       command: 'postgres-explorer.copyQuery',

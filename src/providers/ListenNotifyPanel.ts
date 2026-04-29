@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Client } from 'pg';
 import { SecretStorageService } from '../services/SecretStorageService';
+import { MODERN_WEBVIEW_BASE_CSS } from '../common/htmlStyles';
 
 /** A single received NOTIFY notification. */
 interface PgNotification {
@@ -280,6 +281,7 @@ export class ListenNotifyPanel {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>LISTEN / NOTIFY Monitor</title>
 <style>
+  ${MODERN_WEBVIEW_BASE_CSS}
   :root {
     --bg: var(--vscode-editor-background);
     --fg: var(--vscode-editor-foreground);

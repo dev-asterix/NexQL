@@ -1,12 +1,19 @@
 import * as vscode from 'vscode';
+import { HandlerMessageBase } from '../core/types/handlerMessages';
+
+export interface MessageEnvelope extends HandlerMessageBase {
+  [key: string]: unknown;
+}
+
+export interface MessageHandlerContext {
+  editor?: vscode.NotebookEditor | undefined;
+  webview?: vscode.Webview | undefined;
+  postMessage?: (message: unknown) => Thenable<boolean>;
+  [key: string]: unknown;
+}
 
 export interface IMessageHandler {
-  handle(message: any, context: {
-    editor?: vscode.NotebookEditor | undefined;
-    webview?: vscode.Webview | undefined;
-    postMessage?: (message: any) => Thenable<boolean>;
-    [key: string]: any;
-  }): Promise<void>;
+  handle(message: any, context: MessageHandlerContext): Promise<void>;
 }
 
 export class MessageHandlerRegistry {
@@ -29,12 +36,21 @@ export class MessageHandlerRegistry {
     this.handlers.set(type, handler);
   }
 
-  public async handleMessage(message: any, context: {
-    editor?: vscode.NotebookEditor | undefined;
-    webview?: vscode.Webview | undefined;
-    postMessage?: (message: any) => Thenable<boolean>;
-    [key: string]: any;
-  }) {
+  private isValidEnvelope(message: unknown): message is MessageEnvelope {
+    return (
+      typeof message === 'object' &&
+      message !== null &&
+      typeof (message as MessageEnvelope).type === 'string' &&
+      (message as MessageEnvelope).type.trim().length > 0
+    );
+  }
+
+  public async handleMessage(message: unknown, context: MessageHandlerContext) {
+    if (!this.isValidEnvelope(message)) {
+      console.warn('Rejected invalid message envelope:', message);
+      return;
+    }
+
     const handler = this.handlers.get(message.type);
     if (handler) {
       try {

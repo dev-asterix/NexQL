@@ -23,5 +23,6 @@ If you discover a security vulnerability in this extension (for example, credent
 As a database tool, security is paramount. Here is how this extension handles sensitive data:
 
 1.  **Credential Storage:** We utilize the **VS Code Secret Storage API** to persist connection strings and passwords. We do not store credentials in plain text in `settings.json` or workspace state.
-2.  **Telemetry:** This extension does not collect personal data or database schema information.
-3.  **Data Transmission:** This extension operates locally. It connects directly from your machine to your PostgreSQL instance. No database content is sent to third-party servers.
+2.  **Telemetry (Opt-Out / Configurable):** Telemetry is privacy-first and anonymized. It never sends SQL text, schema names, hostnames, database names, usernames, credentials, or object names.
+3.  **Telemetry Controls:** Telemetry honors both extension settings and VS Code global telemetry (`vscode.env.isTelemetryEnabled`) as a hard gate. You can disable telemetry entirely with `postgresExplorer.telemetry.mode = off`.
+4.  **Data Transmission:** This extension operates locally for database traffic. Telemetry events are only sent when enabled and configured (for example with a PostHog API key), and include only anonymous usage/performance buckets.
