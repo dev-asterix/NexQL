@@ -158,8 +158,21 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   if (hasChanges) {
+    // Before we write connections back to settings, migrate any inline
+    // passwords into Secret Storage so users don't lose credentials.
+    for (const conn of migratedConnections) {
+      if (conn.password) {
+        try {
+          await SecretStorageService.getInstance(context).setPassword(conn.id, conn.password);
+          delete conn.password;
+        } catch (err) {
+          console.error(`Failed to migrate inline password for connection ${conn.name || conn.id}:`, err);
+        }
+      }
+    }
+
     await config.update('postgresExplorer.connections', migratedConnections, vscode.ConfigurationTarget.Global);
-    console.log('Migrated legacy connections to include IDs');
+    console.log('Migrated legacy connections to include IDs and preserved inline passwords');
   }
 
   const azureTimeoutMigrationKey = 'postgresExplorer.migrations.azureConnectionTimeouts.v0_8_9';

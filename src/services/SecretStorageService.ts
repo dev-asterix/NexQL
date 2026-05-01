@@ -57,26 +57,57 @@ export class SecretStorageService {
  * This keeps the logic isolated but accessible to extension.ts
  */
 export async function migrateExistingPasswords(context: vscode.ExtensionContext): Promise<void> {
-  const connections = context.globalState.get<any[]>('postgresql.connections') || [];
+  // Support both the modern settings-based connections and older globalState
+  const settings = vscode.workspace.getConfiguration();
+  const settingsKey = 'postgresExplorer.connections';
+  const legacyKey = 'postgresql.connections';
+
+  const settingsConnections = settings.get<any[]>(settingsKey) || [];
+  const legacyConnections = context.globalState.get<any[]>(legacyKey) || [];
+
   let migratedCount = 0;
+  let settingsDirty = false;
+  let legacyDirty = false;
 
-  for (const conn of connections) {
-    if (conn.password) {
-      try {
-        // Store in secret storage
-        await SecretStorageService.getInstance(context).setPassword(conn.id, conn.password);
-
-        // Remove from connection object and update globalState
-        delete conn.password;
-        migratedCount++;
-      } catch (error) {
-        console.error(`Failed to migrate password for connection ${conn.name}:`, error);
-      }
+  const ensureId = (conn: any, idx: number) => {
+    if (!conn.id) {
+      conn.id = `${Date.now()}-${idx}`;
     }
+  };
+
+  const tryMigrate = async (conn: any, idx: number, source: 'settings' | 'legacy') => {
+    if (!conn || !conn.password) return;
+    try {
+      ensureId(conn, idx);
+      await SecretStorageService.getInstance(context).setPassword(conn.id, conn.password);
+      delete conn.password;
+      migratedCount++;
+      if (source === 'settings') settingsDirty = true; else legacyDirty = true;
+    } catch (error) {
+      console.error(`Failed to migrate password for connection ${conn.name || conn.id}:`, error);
+    }
+  };
+
+  // Migrate from settings-based connections
+  for (let i = 0; i < settingsConnections.length; i++) {
+    await tryMigrate(settingsConnections[i], i, 'settings');
+  }
+
+  // Migrate from legacy globalState connections
+  for (let i = 0; i < legacyConnections.length; i++) {
+    await tryMigrate(legacyConnections[i], i, 'legacy');
+  }
+
+  // Persist any cleaned-up sources
+  if (settingsDirty) {
+    await settings.update(settingsKey, settingsConnections, vscode.ConfigurationTarget.Global);
+  }
+
+  if (legacyDirty) {
+    await context.globalState.update(legacyKey, legacyConnections);
   }
 
   if (migratedCount > 0) {
-    await context.globalState.update('postgresql.connections', connections);
     console.log(`Migrated ${migratedCount} passwords to Secret Storage`);
   }
 }

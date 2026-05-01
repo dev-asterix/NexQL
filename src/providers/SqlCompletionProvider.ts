@@ -3,7 +3,10 @@ import { ConnectionManager } from '../services/ConnectionManager';
 
 interface TableInfo {
   schema: string;
-  tableName: string;
+  objectName: string;
+  objectType: string;
+  arguments?: string;
+  callArguments?: string;
 }
 
 interface ColumnInfo {
@@ -13,8 +16,16 @@ interface ColumnInfo {
   dataType: string;
 }
 
+interface RelationContext {
+  schema: string | null;
+  objectName: string;
+  alias: string | null;
+}
+
+type RelationAliasMap = Map<string, string>;
+
 export class SqlCompletionProvider implements vscode.CompletionItemProvider {
-  private tableCache: Map<string, TableInfo[]> = new Map();
+  private objectCache: Map<string, TableInfo[]> = new Map();
   private columnCache: Map<string, ColumnInfo[]> = new Map();
   private lastCacheUpdate: Map<string, number> = new Map();
   private readonly CACHE_TTL = 60000; // 1 minute cache
@@ -44,23 +55,25 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
 
       // Get current line and word being typed
       const lineText = document.lineAt(position).text;
-      const wordRange = document.getWordRangeAtPosition(position);
-      const currentWord = wordRange ? document.getText(wordRange) : '';
 
       // Parse query to find referenced tables
       const fullText = document.getText();
       const referencedTables = this._extractTableNames(fullText);
+      const schemaContext = this._extractSchemaContext(document, position);
+      const relationContext = this._extractRelationContext(document, position);
+      const relationAliases = this._extractRelationAliases(document, position);
+      const hasQualifiedColumnPrefix = this._hasQualifiedColumnPrefix(lineText, position);
 
       // Add SQL keywords
       completionItems.push(...this._getSqlKeywords());
 
-      // Add table suggestions with high priority
-      const tables = this.tableCache.get(cacheKey) || [];
-      completionItems.push(...this._getTableCompletions(tables, referencedTables));
+      // Add database object suggestions with high priority
+      const objects = this.objectCache.get(cacheKey) || [];
+      completionItems.push(...this._getObjectCompletions(objects, referencedTables, schemaContext));
 
       // Add column suggestions based on context
       const columns = this.columnCache.get(cacheKey) || [];
-      completionItems.push(...this._getColumnCompletions(columns, referencedTables, lineText));
+      completionItems.push(...this._getColumnCompletions(columns, referencedTables, lineText, schemaContext, relationContext, relationAliases, hasQualifiedColumnPrefix));
 
     } catch (error) {
       console.error('SQL completion error:', error);
@@ -119,17 +132,39 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
           name: connection.name
         });
 
-        // Fetch tables
-        const tablesQuery = `
-                    SELECT schemaname as schema, tablename as table_name
-                    FROM pg_tables
+        // Fetch catalog objects
+        const objectsQuery = `
+              SELECT 'table' as object_type, table_schema as schema, table_name as object_name, NULL::text as arguments, NULL::text as call_arguments
+                    FROM information_schema.tables
+                    WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND table_type = 'BASE TABLE'
+                    UNION ALL
+              SELECT 'view', table_schema, table_name, NULL::text, NULL::text
+                    FROM information_schema.views
+                    WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+                    UNION ALL
+              SELECT 'materialized view', schemaname, matviewname, NULL::text, NULL::text
+                    FROM pg_matviews
                     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-                    ORDER BY schemaname, tablename
+                    UNION ALL
+                    SELECT
+                        CASE WHEN p.prokind = 'p' THEN 'procedure' ELSE 'function' END,
+                        n.nspname,
+                        p.proname,
+                pg_get_function_arguments(p.oid) AS arguments,
+                pg_get_function_identity_arguments(p.oid) AS call_arguments
+                    FROM pg_proc p
+                    JOIN pg_namespace n ON p.pronamespace = n.oid
+                    WHERE p.prokind IN ('f', 'p')
+                      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                    ORDER BY schema, object_name
                 `;
-        const tablesResult = await client.query(tablesQuery);
-        const tables: TableInfo[] = this._dedupeTables(tablesResult.rows.map(row => ({
+        const objectsResult = await client.query(objectsQuery);
+        const objects: TableInfo[] = this._dedupeTables(objectsResult.rows.map(row => ({
           schema: row.schema,
-          tableName: row.table_name
+          objectName: row.object_name,
+          objectType: row.object_type
+          ,arguments: row.arguments,
+          callArguments: row.call_arguments
         })));
 
         // Fetch columns
@@ -151,7 +186,7 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
           dataType: row.data_type
         })));
 
-        this.tableCache.set(cacheKey, tables);
+        this.objectCache.set(cacheKey, objects);
         this.columnCache.set(cacheKey, columns);
         this.lastCacheUpdate.set(cacheKey, Date.now());
       } finally {
@@ -184,6 +219,58 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     return tables;
   }
 
+  private _extractSchemaContext(document: vscode.TextDocument, position: vscode.Position): string | null {
+    const textBeforeCursor = document.getText(new vscode.Range(new vscode.Position(0, 0), position));
+    const schemaMatch = textBeforeCursor.match(/(?:from|join|update|into|table|delete\s+from|truncate\s+table|call)\s+([a-z_][a-z0-9_]*)\.[a-z_0-9]*$/i);
+    return schemaMatch?.[1] || null;
+  }
+
+  private _extractRelationContext(document: vscode.TextDocument, position: vscode.Position): RelationContext | null {
+    const textBeforeCursor = document.getText(new vscode.Range(new vscode.Position(0, 0), position));
+    const relationRegex = /(?:from|join|update|into|table|delete\s+from|truncate\s+table|call)\s+((?:[a-z_][a-z0-9_]*\.)?[a-z_][a-z0-9_]*)(?:\s+(?:as\s+)?([a-z_][a-z0-9_]*))?/gi;
+
+    let match: RegExpExecArray | null;
+    let lastRelation: RelationContext | null = null;
+
+    while ((match = relationRegex.exec(textBeforeCursor)) !== null) {
+      const relation = match[1];
+      const alias = match[2] || null;
+      const [schema, objectName] = relation.includes('.') ? relation.split('.', 2) : [null, relation];
+
+      lastRelation = {
+        schema,
+        objectName,
+        alias,
+      };
+    }
+
+    return lastRelation;
+  }
+
+  private _extractRelationAliases(document: vscode.TextDocument, position: vscode.Position): RelationAliasMap {
+    const textBeforeCursor = document.getText(new vscode.Range(new vscode.Position(0, 0), position));
+    const relationRegex = /(?:from|join|update|into|table|delete\s+from|truncate\s+table|call)\s+((?:[a-z_][a-z0-9_]*\.)?[a-z_][a-z0-9_]*)(?:\s+(?:as\s+)?([a-z_][a-z0-9_]*))?/gi;
+    const aliases: RelationAliasMap = new Map();
+
+    let match: RegExpExecArray | null;
+    while ((match = relationRegex.exec(textBeforeCursor)) !== null) {
+      const relation = match[1];
+      const alias = match[2] || null;
+      const [schema, objectName] = relation.includes('.') ? relation.split('.', 2) : [null, relation];
+      const relationKey = `${schema || ''}.${objectName}`.toLowerCase();
+
+      aliases.set(relationKey, alias || objectName);
+      aliases.set(objectName.toLowerCase(), alias || objectName);
+    }
+
+    return aliases;
+  }
+
+  private _hasQualifiedColumnPrefix(lineText: string, position: vscode.Position): boolean {
+    const textBeforeCursor = lineText.slice(0, position.character);
+    return /\.[a-z_0-9]*$/i.test(textBeforeCursor);
+  }
+
   private _getSqlKeywords(): vscode.CompletionItem[] {
     const keywords = [
       'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN',
@@ -202,45 +289,84 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     });
   }
 
-  private _getTableCompletions(tables: TableInfo[], referencedTables: Set<string>): vscode.CompletionItem[] {
-    return tables.map(table => {
-      const item = new vscode.CompletionItem(
-        table.tableName,
-        vscode.CompletionItemKind.Class
-      );
+  private _getObjectCompletions(
+    objects: TableInfo[],
+    referencedTables: Set<string>,
+    schemaContext: string | null
+  ): vscode.CompletionItem[] {
+    const normalizedSchema = schemaContext?.toLowerCase() || null;
 
-      item.detail = `Table (${table.schema})`;
-      item.documentation = new vscode.MarkdownString(`**Table:** \`${table.schema}.${table.tableName}\``);
+    return objects
+      .filter(object => !normalizedSchema || object.schema.toLowerCase() === normalizedSchema)
+      .map(object => {
+        const item = new vscode.CompletionItem(
+          object.objectName,
+          object.objectType === 'function' ? vscode.CompletionItemKind.Function : vscode.CompletionItemKind.Class
+        );
 
-      // Higher priority for already referenced tables
-      if (referencedTables.has(table.tableName.toLowerCase())) {
-        item.sortText = `0-${table.tableName}`;
-      } else {
-        item.sortText = `1-${table.tableName}`;
-      }
+        const objectLabel = object.objectType === 'materialized view'
+          ? 'Materialized View'
+          : object.objectType.replace(/\b\w/g, ch => ch.toUpperCase());
+        item.detail = `${objectLabel} (${object.schema})`;
+        if (object.arguments) {
+          item.detail += ` · (${object.arguments})`;
+        }
+        item.documentation = new vscode.MarkdownString(`**${objectLabel}:** \`${object.schema}.${object.objectName}\``);
+        if (object.arguments) {
+          item.documentation.appendMarkdown(`\n\n**Signature:** \`${object.objectName}(${object.arguments})\``);
+        }
 
-      // Add schema prefix as insert text if needed
-      item.insertText = table.tableName;
-      item.filterText = `${table.schema}.${table.tableName} ${table.tableName}`;
+        // Higher priority for already referenced objects or objects in the active schema
+        if (normalizedSchema && object.schema.toLowerCase() === normalizedSchema) {
+          item.sortText = `0-${object.objectName}`;
+        } else if (referencedTables.has(object.objectName.toLowerCase())) {
+          item.sortText = `0-${object.objectName}`;
+        } else {
+          item.sortText = `1-${object.objectName}`;
+        }
 
-      return item;
-    });
+        if (object.objectType === 'function' || object.objectType === 'procedure') {
+          const callArguments = object.callArguments || '';
+          const argumentNames = this._extractArgumentNames(callArguments);
+          const routineSnippet = argumentNames.length > 0
+            ? `${object.objectName}(${argumentNames.map((argumentName, index) => `\${${index + 1}:${argumentName}}`).join(', ')})`
+            : `${object.objectName}()`;
+          item.insertText = new vscode.SnippetString(routineSnippet);
+        } else {
+          item.insertText = schemaContext ? object.objectName : `${object.schema}.${object.objectName}`;
+        }
+        item.filterText = `${object.schema}.${object.objectName} ${object.objectName} ${object.objectType}`;
+
+        return item;
+      });
   }
 
   private _getColumnCompletions(
     columns: ColumnInfo[],
     referencedTables: Set<string>,
-    lineText: string
+    lineText: string,
+    schemaContext: string | null,
+    relationContext: RelationContext | null,
+    relationAliases: RelationAliasMap,
+    hasQualifiedColumnPrefix: boolean
   ): vscode.CompletionItem[] {
     const completions: vscode.CompletionItem[] = [];
 
+    const relationName = relationContext?.objectName.toLowerCase() || null;
+    const relationSchema = relationContext?.schema?.toLowerCase() || null;
+
     // Filter columns by referenced tables
     const relevantColumns = columns.filter(col =>
-      referencedTables.has(col.tableName.toLowerCase())
+      (
+        (relationName && col.tableName.toLowerCase() === relationName && (!relationSchema || col.schema.toLowerCase() === relationSchema)) ||
+        referencedTables.has(col.tableName.toLowerCase())
+      ) && (!schemaContext || col.schema.toLowerCase() === schemaContext.toLowerCase())
     );
 
     // Add all columns, but prioritize relevant ones
-    const allColumns = relevantColumns.length > 0 ? relevantColumns : columns;
+    const allColumns = relevantColumns.length > 0
+      ? relevantColumns
+      : (schemaContext ? columns.filter(col => col.schema.toLowerCase() === schemaContext.toLowerCase()) : columns);
 
     for (const column of allColumns) {
       const item = new vscode.CompletionItem(
@@ -262,6 +388,15 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
         item.sortText = `2-${column.columnName}`;
       }
 
+      const columnAlias = relationAliases.get(`${column.schema}.${column.tableName}`.toLowerCase())
+        || relationAliases.get(column.tableName.toLowerCase())
+        || column.tableName;
+
+      item.insertText = hasQualifiedColumnPrefix
+        ? column.columnName
+        : `${columnAlias}.${column.columnName}`;
+      item.filterText = `${column.schema}.${column.tableName}.${column.columnName} ${column.tableName}.${column.columnName} ${column.columnName}`;
+
       completions.push(item);
     }
 
@@ -272,7 +407,7 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     const seen = new Set<string>();
 
     return tables.filter(table => {
-      const key = `${table.schema}.${table.tableName}`;
+      const key = `${table.schema}.${table.objectName}`;
       if (seen.has(key)) {
         return false;
       }
@@ -280,6 +415,25 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
       seen.add(key);
       return true;
     });
+  }
+
+  private _extractArgumentNames(argumentsText: string): string[] {
+    if (!argumentsText.trim()) {
+      return [];
+    }
+
+    return argumentsText
+      .split(',')
+      .map(part => part.trim())
+      .filter(Boolean)
+      .map((part, index) => {
+        const withoutDefault = part.replace(/\s+default\s+.+$/i, '').trim();
+        const tokens = withoutDefault.split(/\s+/).filter(Boolean);
+        const modeTokens = new Set(['in', 'out', 'inout', 'variadic', 'table']);
+        const firstToken = tokens[0]?.toLowerCase();
+        const candidate = modeTokens.has(firstToken || '') ? tokens[1] : tokens[0];
+        return candidate || `arg${index + 1}`;
+      });
   }
 
   private _dedupeColumns(columns: ColumnInfo[]): ColumnInfo[] {
