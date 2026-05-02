@@ -3243,7 +3243,7 @@
     "package:prerelease": "npx @vscode/vsce package --pre-release",
     "package:openvsx:nightly": "npx @vscode/vsce package",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:ssh2 --external:pg --external:@cursor/sdk --format=cjs --platform=node --main-fields=main",
-    "esbuild-renderer": "esbuild ./src/ui/renderer/renderer_v2.ts --bundle --outfile=dist/renderer_v2.js --format=esm --platform=browser",
+    "esbuild-renderer": "esbuild ./src/ui/renderer/renderer_v2.ts --bundle --outdir=dist --format=esm --platform=browser --splitting",
     "esbuild-erd-webview": "esbuild ./src/schemaDesigner/erd/webview/main.ts --bundle --outfile=dist/erd-webview.js --format=iife --platform=browser",
     "copy-templates": "cp -r templates dist/",
     "compile": "tsc -p ./ && npm run esbuild-renderer && npm run esbuild-erd-webview && npm run copy-templates",
