@@ -20,7 +20,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.105.0",
+    "vscode": "^1.107.0",
     "node": ">=18.0.0"
   },
   "categories": [

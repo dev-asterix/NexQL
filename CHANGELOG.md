@@ -5,7 +5,23 @@ All notable changes to the PostgreSQL Explorer extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.5] - 2026-05-07
+> Nightly releases - v1.3.6 • v1.3.7 
+
+### Added
+
+- **Plan Studio** — Added a dedicated workspace for deep `EXPLAIN` analysis with plan comparison, flame graphs, and performance recommendations.
+- **Schema designer ERD import/export** — Added DBML import, multi-schema ERD support, and export/migration draft helpers.
+- **Query result renderer upgrades** — Added lazy-loaded chart, analyst, and explain tabs, plus a more modular renderer pipeline for query results.
+
+### Changed
+
+- **Telemetry and status UX** — Added explicit telemetry mode controls and a status-bar indicator, with message handling updates across the extension.
+- **Dashboard and saved queries** — Refreshed dashboard rendering and saved-query flows to match the new message/result model.
+- **Connection and AI settings** — Updated the connection form, AI settings panel, and chat webviews to support the new workflows.
+
 ## [1.2.4] - 2026-05-03
+> Nightly releases - v1.3.3 • v1.3.4 • v1.3.5
 
 ### Added
 
