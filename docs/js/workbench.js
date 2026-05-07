@@ -64,6 +64,10 @@ function wireWindowControls() {
     document.body.classList.toggle("editor-minimized", minimized);
     shell.setAttribute("aria-hidden", minimized ? "true" : "false");
     if (minimizedOverview) minimizedOverview.setAttribute("aria-hidden", minimized ? "false" : "true");
+    if (!minimized) {
+      shell.classList.add("shell-opening");
+      shell.addEventListener("animationend", () => shell.classList.remove("shell-opening"), { once: true });
+    }
   };
 
   let isClosing = false;
@@ -141,21 +145,14 @@ function wireNavigation() {
   });
 }
 
-// ── Theme ─────────────────────────────────────────────────
-function applyTheme(theme) {
+// ── Theme (dark-only) ─────────────────────────────────────
+function applyTheme(_theme) {
   if (!document.body) return;
-  document.body.setAttribute("data-theme", theme);
-  const label = `Theme: ${theme === "light" ? "Light" : "Dark"}`;
-  const toggle = document.getElementById("theme-toggle");
+  // Always dark — any stored or passed theme value is ignored
+  document.body.setAttribute("data-theme", "dark");
   const statusTheme = document.getElementById("sb-theme");
-  if (toggle) {
-    const nextThemeLabel = theme === "dark" ? "light" : "dark";
-    toggle.setAttribute("aria-label", `Switch to ${nextThemeLabel} theme`);
-    toggle.setAttribute("data-tooltip", `Theme: ${theme === "light" ? "Light" : "Dark"}`);
-    toggle.setAttribute("title", `Switch to ${nextThemeLabel} theme`);
-  }
-  if (statusTheme) statusTheme.textContent = label;
-  // Re-render chart so bar/grid colours match the new theme
+  if (statusTheme) statusTheme.textContent = "Theme: Dark";
+  // Re-render chart with dark tokens unconditionally
   if (typeof Chart !== "undefined") {
     const canvas = document.getElementById("revenue-chart");
     if (canvas && Chart.getChart(canvas)) {
@@ -166,12 +163,9 @@ function applyTheme(theme) {
 }
 
 function wireThemeToggle() {
-  applyTheme(window.localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light");
-  document.getElementById("theme-toggle")?.addEventListener("click", () => {
-    const next = document.body.getAttribute("data-theme") === "dark" ? "light" : "dark";
-    applyTheme(next);
-    window.localStorage.setItem(THEME_KEY, next);
-  });
+  applyTheme("dark");
+  // Toggle button is hidden via CSS; listener kept for safety but writes nothing
+  document.getElementById("theme-toggle")?.addEventListener("click", () => applyTheme("dark"));
 }
 
 // ── Search ────────────────────────────────────────────────

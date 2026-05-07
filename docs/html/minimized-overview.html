@@ -10,39 +10,155 @@
     <meta itemprop="price" content="0">
     <meta itemprop="priceCurrency" content="USD">
   </div>
-  <div class="minimized-hero-wrap">
-    <p class="min-badge">VS Code Marketplace <strong id="min-overview-version" itemprop="softwareVersion">--</strong></p>
-    <div class="nexql-logo-container">
-      <img src="./assets/NexQL.png" alt="NexQL Logo" class="nexql-logo" />
+
+  <!-- Two-column hero layout -->
+  <div class="hero-layout">
+
+    <!-- LEFT: narrative & CTAs -->
+    <div class="hero-col-left">
+      <div class="hero-trust-badge">
+        <span class="badge-pulse" aria-hidden="true"></span>
+        Live demo-first product site
+      </div>
+
+      <h2>
+        PostgreSQL work<br>
+        <span class="hero-accent-word">without</span>
+        <span class="hero-accent-word">context</span>
+        <span class="hero-accent-word">switching.</span>
+      </h2>
+
+      <p class="min-lead" itemprop="description">Turn the homepage into a living VS Code workspace: connect
+        to a demo database, run a notebook query, watch results chart, and ask the AI assistant why the query
+        is slow.</p>
+
+      <div class="minimized-actions">
+        <button class="min-cta primary" id="open-editor-shortcut" type="button">Open interactive demo</button>
+        <a class="min-cta secondary"
+          href="https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer" target="_blank"
+          rel="noopener noreferrer">Install from Marketplace</a>
+      </div>
+
+      <div class="hero-kpi-strip">
+        <div class="kpi-item">
+          <span class="kpi-value" id="landing-stat-downloads">5.9K</span>
+          <span class="kpi-label">Marketplace installs</span>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-value"><span id="min-overview-version" itemprop="softwareVersion">--</span></span>
+          <span class="kpi-label">Current release</span>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-value">AI + SQL</span>
+          <span class="kpi-label">Schema aware workflows</span>
+        </div>
+      </div>
     </div>
-    <h2>Powerful PostgreSQL <span>Management Inside VS Code</span></h2>
-    <p class="min-lead" itemprop="description">Write SQL, manage PostgreSQL databases, and leverage AI — all without
-      leaving VS Code. Interactive SQL notebooks (.pgsql), live dashboards, schema explorer, and AI-assisted query
-      optimization with OpenAI, Anthropic Claude, Gemini, and GitHub Models.</p>
-  </div>
-  <div class="minimized-actions">
-    <a class="min-cta primary" href="https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer"
-      target="_blank" rel="noopener noreferrer">⬇ Install Now</a>
-    <button class="min-cta secondary" id="open-editor-shortcut" type="button">✨ Open Demo</button>
-  </div>
-  <div class="mini-editor-preview" aria-label="PgStudio preview">
-    <div class="mini-preview-toolbar">
-      <button class="mini-terminal-btn" type="button">▶ Run</button>
-      <button class="mini-terminal-btn" type="button">✨ Ask AI</button>
-      <button class="mini-terminal-btn" type="button">💬 Chat</button>
-      <button class="mini-terminal-btn" type="button">Optimize</button>
-      <button class="mini-terminal-btn" type="button">Explain</button>
+
+    <!-- RIGHT: mini workbench preview -->
+    <div class="hero-col-right">
+      <!--
+        .mini-editor-preview is kept for JS wiring:
+        workbench.js selects ".mini-editor-preview button" and wires them all
+        to open the interactive editor (setEditorMinimized(false)).
+      -->
+      <div class="mini-wb-preview mini-editor-preview" aria-label="PgStudio interactive preview — click to open demo"
+        role="img">
+
+        <!-- Titlebar -->
+        <div class="mini-wb-titlebar">
+          <div class="mini-wb-dots" aria-hidden="true">
+            <span class="dot-red"></span>
+            <span class="dot-yellow"></span>
+            <span class="dot-green"></span>
+          </div>
+          <span class="mini-wb-window-title">PgStudio Workspace · Demo Project</span>
+          <div class="mini-wb-tab-strip" aria-hidden="true">
+            <span class="mini-wb-tab is-active">query.pgsql</span>
+            <span class="mini-wb-tab">README.md</span>
+          </div>
+        </div>
+
+        <!-- Body: sidebar + editor area + assistant -->
+        <div class="mini-wb-body" aria-hidden="true">
+
+          <!-- Sidebar -->
+          <div class="mini-wb-sidebar">
+            <div class="mini-wb-sidebar-hdr">PGSTUDIO</div>
+            <div class="mini-wb-file-row is-active">
+              <span class="mini-wb-file-dot nb"></span>
+              query.pgsql
+            </div>
+            <div class="mini-wb-file-row">
+              <span class="mini-wb-file-dot nb"></span>
+              sales_health.pgsql
+            </div>
+            <div class="mini-wb-section-hdr">SCHEMA</div>
+            <div class="mini-wb-schema-row">orders</div>
+            <div class="mini-wb-schema-row">customers</div>
+            <div class="mini-wb-schema-row">products</div>
+            <div class="mini-wb-env-badge">
+              Safe env labels&nbsp;
+              <span class="env-label-dev">DEV</span>&thinsp;/&thinsp;<span class="env-label-prod">PROD</span>
+            </div>
+          </div>
+
+          <!-- Center: query result table + chart -->
+          <div class="mini-wb-editor">
+            <table class="mini-wb-result-table">
+              <thead>
+                <tr><th>day</th><th>orders</th><th>revenue</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Apr 07</td><td>142</td><td>$18,420</td></tr>
+                <tr><td>Apr 08</td><td>158</td><td>$21,340</td></tr>
+                <tr><td>Apr 09</td><td>131</td><td>$17,890</td></tr>
+                <tr><td>Apr 10</td><td>177</td><td>$24,110</td></tr>
+              </tbody>
+            </table>
+            <div class="mini-chart">
+              <div class="mini-chart-bar" style="--bar-h: 66%"></div>
+              <div class="mini-chart-bar" style="--bar-h: 77%"></div>
+              <div class="mini-chart-bar" style="--bar-h: 64%"></div>
+              <div class="mini-chart-bar" style="--bar-h: 87%"></div>
+              <div class="mini-chart-bar" style="--bar-h: 100%"></div>
+              <div class="mini-chart-bar" style="--bar-h: 81%"></div>
+              <div class="mini-chart-bar" style="--bar-h: 95%"></div>
+            </div>
+          </div>
+
+          <!-- Right: SQL Assistant -->
+          <div class="mini-wb-assistant">
+            <div class="mini-wb-assistant-hdr">SQL ASSISTANT</div>
+            <div class="mini-wb-schema-pill">
+              Schema context: <strong>orders, customers</strong>
+            </div>
+            <div class="mini-chat-user">Why is this daily revenue query slow?</div>
+            <div class="mini-chat-ai">
+              I can see <code>orders.created_at</code> is not indexed. Create
+              <code>idx_orders_created_at</code> concurrently, then cache the daily rollup
+              for dashboard latency.<br><br>
+              Expected result: 3s to under 100ms on this demo shape.
+            </div>
+            <!-- JS-wired: clicking this button opens the interactive editor -->
+            <button class="mini-wb-cta-btn" type="button" aria-label="Open interactive PgStudio demo">
+              Try it live →
+            </button>
+          </div>
+        </div>
+
+        <!-- Insight bar -->
+        <div class="mini-wb-insight-bar">
+          Plan insight
+          <span class="mini-wb-insight-pill">Index recommendation</span>
+        </div>
+
+      </div>
     </div>
-    <pre class="mini-preview-code"><code><span class="comment">-- Real-time database insights</span>
-<span class="kw">SELECT</span>
-  <span class="fn">date_trunc</span>(<span class="str">'day'</span>, created_at) <span class="kw">AS</span> day,
-  <span class="fn">COUNT</span>(*) <span class="kw">AS</span> users,
-  <span class="fn">SUM</span>(amount) <span class="kw">AS</span> revenue
-<span class="kw">FROM</span> orders
-<span class="kw">WHERE</span> created_at &gt;= <span class="fn">NOW</span>() - <span class="kw">INTERVAL</span> <span class="str">'7 days'</span>
-<span class="kw">GROUP BY</span> day <span class="kw">ORDER BY</span> day;</code></pre>
-    <div class="mini-preview-foot">✓ 7 rows in 45ms</div>
-  </div>
+
+  </div><!-- /hero-layout -->
+
+  <!-- Links row -->
   <div class="minimized-links">
     <a class="min-link" href="https://github.com/dev-asterix/PgStudio#readme" target="_blank"
       rel="noopener noreferrer">Documentation</a>
@@ -54,35 +170,19 @@
       rel="noopener noreferrer">GitHub</a>
     <a class="min-link min-link-home" href="https://astrx.dev/" target="_blank" rel="noopener noreferrer">Home</a>
   </div>
+
+  <!-- Hidden SEO content (unchanged) -->
   <ul class="min-feature-pills" aria-label="Key features" itemprop="featureList"
     style="display:none;flex-wrap:wrap;gap:6px;list-style:none;padding:10px 0 4px;margin:0;justify-content:center">
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      SQL Notebooks</li>
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      DB Explorer</li>
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      AI Assistant</li>
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      Schema Designer</li>
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      ERD Diagrams</li>
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      SSH Tunnels</li>
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      EXPLAIN Analysis</li>
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      Live Dashboard</li>
-    <li
-      style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">
-      Free</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">SQL Notebooks</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">DB Explorer</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">AI Assistant</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">Schema Designer</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">ERD Diagrams</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">SSH Tunnels</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">EXPLAIN Analysis</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">Live Dashboard</li>
+    <li style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border-color)">Free</li>
   </ul>
   <p style="display:none">PgStudio helps developers query PostgreSQL in VS Code with notebooks, explorer navigation,
     schema tools, AI-assisted SQL generation, EXPLAIN analysis, and performance optimization workflows.</p>

@@ -109,6 +109,24 @@
       <p class="hero-subtitle">Connect, explore, query, and optimize - without leaving your editor. Powered by AI, built
         for teams.</p>
 
+      <!-- Immersive decorative layer: bg-grid, orbit ring, context nodes -->
+      <div class="workbench-bg-grid" aria-hidden="true"></div>
+      <div class="shell-orbit" aria-hidden="true"></div>
+
+      <!-- Floating context node pills (decorative, pointer-events:none) -->
+      <div class="ctx-node ctx-one" aria-hidden="true">
+        <span class="ctx-node-label">Schema context</span>
+        <span class="ctx-node-value">orders, customers</span>
+      </div>
+      <div class="ctx-node ctx-two" aria-hidden="true">
+        <span class="ctx-node-label">Safe env labels</span>
+        <span class="ctx-node-value"><span class="ctx-env-dev">DEV</span> / <span class="ctx-env-prod">PROD</span></span>
+      </div>
+      <div class="ctx-node ctx-three" aria-hidden="true">
+        <span class="ctx-node-label">Plan insight</span>
+        <span class="ctx-node-value">Index recommendation</span>
+      </div>
+
       <div class="shell" role="application" aria-label="Mac style PgStudio editor demo" aria-hidden="true">
         <header class="titlebar">
           <div class="mobile-menu-btn" id="btn-toggle-left"><svg viewBox="0 0 24 24" width="16" stroke="currentColor"
@@ -142,6 +160,29 @@
         </header>
 
         <div class="workbench">
+          <!-- Decorative command palette overlay — auto-hides on first interaction -->
+          <div class="cmd-palette-demo" aria-hidden="true">
+            <div class="cmd-palette-header">
+              <span class="cmd-palette-prompt">⌘K</span>
+              <span class="cmd-palette-title">PgStudio Commands</span>
+              <span class="cmd-palette-badge">Demo</span>
+            </div>
+            <div class="cmd-palette-rows">
+              <div class="cmd-palette-row">
+                <span class="cmd-palette-icon">⬡</span>
+                <span class="cmd-palette-text">&gt; PgStudio: optimize current query</span>
+              </div>
+              <div class="cmd-palette-row is-active">
+                <span class="cmd-palette-icon">✦</span>
+                <span class="cmd-palette-text">Ask AI with schema context</span>
+              </div>
+              <div class="cmd-palette-row">
+                <span class="cmd-palette-icon">▷</span>
+                <span class="cmd-palette-text">Run selected SQL cell</span>
+              </div>
+            </div>
+          </div>
+
           <aside class="activity-bar" aria-label="Primary navigation">
             <!-- Explorer: shows file-tree sidebar panel -->
             <button class="activity-icon active" type="button" data-panel="explorer" title="Explorer"

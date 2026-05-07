@@ -83,7 +83,7 @@
 
 /* ── Right panel (SQL Assistant) ──────────────────────── */
 .right-panel {
-  background: var(--vsc-sidebar);
+  background: #101c32;
   border-left: 1px solid var(--vsc-border);
   display: flex;
   flex-direction: column;
@@ -185,7 +185,7 @@
   margin-bottom: 16px;
 }
 .action-card {
-  background: var(--surface);
+  background: rgba(14, 24, 45, 0.82);
   border: 1px solid var(--vsc-border);
   border-radius: 6px;
   cursor: pointer;
@@ -194,9 +194,12 @@
   gap: 3px;
   padding: 9px 10px;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
-.action-card:hover { border-color: var(--vsc-orange); background: var(--vsc-highlight); }
+.action-card:hover {
+  border-color: rgba(88, 166, 255, 0.4);
+  box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.4), 0 8px 24px rgba(88, 166, 255, 0.18);
+}
 .action-card-icon {
   color: var(--vsc-muted);
   font-size: 15px;
@@ -256,14 +259,16 @@
   padding: 7px 9px;
 }
 .chat-msg.user {
-  background: color-mix(in srgb, var(--vsc-orange) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--vsc-orange) 24%, transparent);
+  background: rgba(255, 107, 22, 0.11);
+  border: 1px solid rgba(255, 107, 22, 0.28);
+  border-radius: 12px 12px 4px 12px;
   color: var(--vsc-text);
   margin-left: 14px;
 }
 .chat-msg.assistant {
-  background: var(--surface);
-  border: 1px solid var(--vsc-border);
+  background: rgba(15, 23, 42, 0.62);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 4px 12px 12px 12px;
   color: var(--vsc-text);
 }
 .chat-msg.assistant .chat-rich-response {
@@ -479,16 +484,16 @@ body,
   width: 0;
 }
 
-body[data-theme="dark"] {
+html, body {
   scrollbar-color: rgba(37, 99, 235, 0.32) transparent;
 }
 
-body[data-theme="dark"] *::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background: rgba(37, 99, 235, 0.32);
   background-clip: padding-box;
 }
 
-body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background: rgba(37, 99, 235, 0.5);
   background-clip: padding-box;
 }
@@ -529,12 +534,12 @@ body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
 /* ── Startup toast notification ───────────────────────── */
 .toast {
   align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--vsc-border);
-  border-left: 3px solid var(--vsc-orange);
+  background: #0d1728;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-left: 4px solid var(--vsc-blue);
   border-radius: 6px;
   bottom: 36px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), -2px 0 10px rgba(88, 166, 255, 0.12);
   color: var(--vsc-text);
   display: flex;
   font-size: 11.5px;
@@ -565,6 +570,9 @@ body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
 
 /* ── Tour overlay & spotlight ─────────────────────────── */
 .tour-overlay {
+  background: rgba(7, 11, 20, 0.72);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   display: none;
   inset: 0;
   pointer-events: none;
@@ -574,9 +582,9 @@ body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
 .tour-overlay.active { display: block; }
 
 .tour-spotlight {
-  border: 2px solid color-mix(in srgb, var(--vsc-orange) 90%, transparent);
+  border: 2px solid rgba(255, 107, 22, 0.7);
   border-radius: 6px;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--vsc-orange) 18%, transparent), 0 0 16px color-mix(in srgb, var(--vsc-orange) 25%, transparent), 0 0 0 9999px rgba(0, 0, 0, 0.38);
+  box-shadow: 0 0 0 9999px rgba(7, 11, 20, 0.72), 0 0 60px rgba(255, 107, 22, 0.45), 0 0 0 4px rgba(255, 107, 22, 0.22);
   pointer-events: none;
   position: fixed;
   transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
@@ -584,11 +592,11 @@ body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
 }
 
 .tour-tooltip {
-  background: var(--surface);
-  border: 1px solid var(--vsc-border);
+  background: #0d1728;
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-left: 3px solid var(--vsc-orange);
-  border-radius: 8px;
-  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45);
+  border-radius: 12px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.65), -2px 0 12px rgba(37, 99, 235, 0.18);
   max-width: 272px;
   min-width: 230px;
   opacity: 0;
@@ -628,8 +636,8 @@ body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
   gap: 5px;
 }
 .tour-nav-btn {
-  background: var(--vsc-highlight);
-  border: 1px solid var(--vsc-border);
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 4px;
   color: var(--vsc-text);
   cursor: pointer;
@@ -638,10 +646,11 @@ body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
   padding: 4px 10px;
   transition: background 0.12s;
 }
-.tour-nav-btn:hover { background: var(--vsc-border); }
+.tour-nav-btn:hover { background: rgba(148, 163, 184, 0.18); }
 .tour-nav-btn.primary {
-  background: var(--vsc-orange);
+  background: linear-gradient(135deg, #ff6b16 0%, #ea580c 100%);
   border-color: transparent;
+  box-shadow: 0 2px 12px rgba(255, 107, 22, 0.4);
   color: #fff;
 }
 .tour-nav-btn.primary:hover { filter: brightness(1.1); }
@@ -677,7 +686,7 @@ body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
 }
 .chat-typing-dots .typing-dot {
   animation: typingBounce 1.2s infinite;
-  background: var(--vsc-muted);
+  background: #58a6ff;
   border-radius: 50%;
   height: 5px;
   width: 5px;
@@ -711,65 +720,32 @@ body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
    PALETTE POLISH: Neon glow pass (dark mode, logo-aligned)
    ══════════════════════════════════════════════════════════ */
 
-/* h1 accent span — neon text glow matching logo */
-body[data-theme="dark"] .hero-shell h1 span {
-  text-shadow: 0 0 14px rgba(37, 99, 235, 0.45), 0 0 24px rgba(249, 115, 22, 0.18);
+/* h1 accent span — neon text glow */
+.hero-shell h1 span {
+  text-shadow: 0 0 14px rgba(37, 99, 235, 0.45), 0 0 24px rgba(255, 107, 22, 0.18);
 }
 
-/* Install / CTA buttons — cyan glow */
-body[data-theme="dark"] .hero-install-btn,
-body[data-theme="dark"] .topbar-install {
-  box-shadow: 0 2px 14px rgba(249, 115, 22, 0.28);
+/* Install / CTA buttons — orange glow */
+.hero-install-btn,
+.topbar-install {
+  box-shadow: 0 2px 14px rgba(255, 107, 22, 0.28);
 }
 
-/* Active tab — soft cyan underline glow */
-body[data-theme="dark"] .tab.active {
-  box-shadow: inset 0 -1px 0 rgba(37, 99, 235, 0.24), 0 2px 8px rgba(37, 99, 235, 0.12);
+/* Shell border — faint blue rim */
+.shell {
+  box-shadow: 0 24px 72px rgba(2, 6, 23, 0.65), 0 0 0 1px rgba(37, 99, 235, 0.14), 0 0 40px rgba(255, 107, 22, 0.06);
 }
 
-/* Dark mode tabs — teal accent matching scrollbar */
-body[data-theme="dark"] .tabs {
-  background: rgba(11, 15, 15, 0.08);
-}
-
-body[data-theme="dark"] .tab {
-  background: rgba(21, 29, 28, 0.08);
-}
-
-body[data-theme="dark"] .tab.active {
-  background: rgba(249, 115, 22, 0.12);
-}
-
-/* Shell border — faint cyan rim in dark mode */
-body[data-theme="dark"] .shell {
-  border-color: rgba(20, 39, 36, 0.14);
-  box-shadow: 0 24px 72px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(37, 99, 235, 0.12), 0 0 40px rgba(249, 115, 22, 0.05);
-}
-
-/* Statusbar — keep cobalt, add subtle glow */
-body[data-theme="dark"] .statusbar {
-  box-shadow: 0 -1px 0 rgba(37, 99, 235, 0.18);
-}
-
-/* Tour tooltip — cyan left border glow */
-body[data-theme="dark"] .tour-tooltip {
-  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.6), -2px 0 12px rgba(37, 99, 235, 0.18);
-}
-
-/* Toast — cyan glow */
-body[data-theme="dark"] .toast {
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), -2px 0 10px rgba(249, 115, 22, 0.16);
+/* Statusbar — cobalt glow */
+.statusbar {
+  box-shadow: 0 -1px 0 rgba(37, 99, 235, 0.24);
 }
 
 /* Send button in assistant */
-body[data-theme="dark"] .input-send-btn {
-  box-shadow: 0 1px 8px rgba(37, 99, 235, 0.3);
+.input-send-btn {
+  box-shadow: 0 1px 8px rgba(88, 166, 255, 0.3);
 }
 
-/* topbar hover box-shadow — was rgba(0,85,168) */
-body[data-theme="light"] .topbar-icon-btn:hover {
-  box-shadow: 0 2px 10px rgba(29, 78, 216, 0.2);
-}
 
 /* ── Chart cell (revenue bar chart) ───────────────────── */
 .chart-cell {
@@ -817,16 +793,22 @@ body[data-theme="light"] .topbar-icon-btn:hover {
 
 /* ── Chat install CTA link ────────────────────────────── */
 .chat-install-cta {
-  color: var(--vsc-orange);
+  background: linear-gradient(135deg, #ff6b16 0%, #ea580c 100%);
+  border-radius: 999px;
+  color: #fff;
   cursor: pointer;
   display: inline-block;
   font-size: 11px;
   font-weight: 600;
   margin-top: 6px;
+  padding: 4px 12px;
   text-decoration: none;
-  transition: filter 0.15s;
+  transition: filter 0.15s, box-shadow 0.15s;
 }
-.chat-install-cta:hover { filter: brightness(1.15); }
+.chat-install-cta:hover {
+  box-shadow: 0 2px 12px rgba(255, 107, 22, 0.4);
+  filter: brightness(1.08);
+}
 
 /* --- Mobile Enhancements --- */
 .mobile-menu-btn {
@@ -1082,10 +1064,16 @@ body[data-theme="light"] .topbar-icon-btn:hover {
 .schema-context-bar::-webkit-scrollbar { display: none; }
 .schema-ctx-label { color: var(--vsc-muted); flex-shrink: 0; font-size: 9px; font-weight: 600; letter-spacing: .06em; }
 .schema-chip {
-  background: var(--surface); border: 1px solid var(--vsc-border); border-radius: 3px;
-  color: var(--vsc-muted); flex-shrink: 0; font-family: monospace; font-size: 9.5px; padding: 1px 5px;
+  background: rgba(37, 99, 235, 0.13);
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 3px;
+  color: var(--vsc-muted);
+  flex-shrink: 0;
+  font-family: monospace;
+  font-size: 9.5px;
+  padding: 1px 5px;
 }
-.active-chip { color: #1d4ed8; border-color: rgba(29,78,216,.4); background: rgba(29,78,216,.08); }
+.active-chip { color: #58a6ff; border-color: rgba(88, 166, 255, 0.4); background: rgba(88, 166, 255, 0.08); }
 
 /* ?????? Context Menu (Attachment) ???????????????????????????????????????????????????????????????????????????????????????????????? */
 .chat-attach-menu {

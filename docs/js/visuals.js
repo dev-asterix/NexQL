@@ -40,6 +40,7 @@ async function hydrateMarketplaceStats() {
 
     const dlEl = document.getElementById("stat-downloads");
     const rtEl = document.getElementById("stat-rating");
+    const landingDlEl = document.getElementById("landing-stat-downloads");
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     set("stat-version", `v${version}`);
     set("badge-version", `v${version}`);
@@ -56,6 +57,7 @@ async function hydrateMarketplaceStats() {
     window.setTimeout(() => {
       animateCountUp(dlEl, installs >= 1e3 ? installs / 1e3 : installs, installs >= 1e3 ? "K" : "", 1200);
       animateCountUp(rtEl, rating, "", 800);
+      animateCountUp(landingDlEl, installs >= 1e3 ? installs / 1e3 : installs, installs >= 1e3 ? "K" : "", 1200);
     }, 600);
   } catch (e) { console.error("Marketplace stats failed", e); }
 }
@@ -65,11 +67,11 @@ function renderRevenueChart() {
   const canvas = document.getElementById("revenue-chart");
   if (!canvas || typeof Chart === "undefined") return;
 
-  const isDark = document.body.getAttribute("data-theme") === "dark";
-  const gridColor = isDark ? "rgba(255,255,255,0.06)" : "rgba(77,94,252,0.08)";
-  const textColor = isDark ? "#9ca6d4" : "#667096";
-  const barColor = isDark ? "rgba(24,214,255,0.55)" : "rgba(77,94,252,0.62)";
-  const barBorder = isDark ? "rgba(24,214,255,0.85)" : "#4d5efc";
+  // Dark-only tokens — aligned with the immersive palette
+  const gridColor = "rgba(148,163,184,0.1)";
+  const textColor = "#9fb0cc";
+  const barColor = "rgba(34,211,238,0.55)";
+  const barBorder = "#22d3ee";
 
   new Chart(canvas, {
     type: "bar",
@@ -90,11 +92,11 @@ function renderRevenueChart() {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: isDark ? "#1c1d4f" : "#ffffff",
-          borderColor: isDark ? "rgba(24,214,255,0.3)" : "rgba(77,94,252,0.3)",
+          backgroundColor: "#0d1728",
+          borderColor: "rgba(34,211,238,0.28)",
           borderWidth: 1,
-          titleColor: isDark ? "#eff3ff" : "#14162b",
-          bodyColor: isDark ? "#9ca6d4" : "#667096",
+          titleColor: "#f8fbff",
+          bodyColor: "#9fb0cc",
           cornerRadius: 6,
           callbacks: {
             label: (ctx) => `$${ctx.parsed.y.toLocaleString()}`

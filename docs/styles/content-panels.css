@@ -23,8 +23,15 @@
   background: var(--vsc-orange);
 }
 
-body[data-theme="dark"] .tour-dot {
+.tour-dot {
   background: rgba(255, 255, 255, 0.2);
+}
+
+.tour-dot.active {
+  background: var(--vsc-orange);
+  box-shadow: 0 0 0 3px rgba(255, 107, 22, 0.3);
+  transform: scale(1.4);
+  transition: background 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .tour-label {
@@ -261,9 +268,9 @@ body[data-theme="dark"] .tour-dot {
   margin: 0;
 }
 
-body[data-theme="dark"] .doc-tip {
+.doc-tip {
   background: rgba(37, 99, 235, 0.1);
-  border-color: rgba(249, 115, 22, 0.28);
+  border-color: rgba(255, 107, 22, 0.28);
 }
 
 @media (max-width: 760px) {

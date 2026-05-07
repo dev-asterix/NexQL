@@ -21,6 +21,15 @@ function initializeDesktopExperience() {
   document.addEventListener("click", (e) => {
     const tab = e.target.closest("[data-open='query']");
     if (tab) window.setTimeout(animateSqlTyping, 200);
+    // On first workbench interaction: schedule context node fade and suppress command palette
+    if (e.target.closest(".shell")) {
+      if (!document.body.classList.contains("nodes-faded")) {
+        window.setTimeout(() => document.body.classList.add("nodes-faded"), 6000);
+      }
+      if (!document.body.classList.contains("shell-engaged")) {
+        document.body.classList.add("shell-engaged");
+      }
+    }
   });
 }
 
