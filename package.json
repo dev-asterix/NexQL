@@ -1,7 +1,7 @@
 {
   "name": "postgres-explorer",
   "displayName": "PgStudio (PostgreSQL Explorer)",
-  "version": "1.3.12",
+  "version": "1.3.13",
   "description": "PostgreSQL database explorer for VS Code with notebook support [Nightly]",
   "publisher": "ric-v",
   "private": false,
@@ -1792,6 +1792,12 @@
           "type": "string",
           "default": "",
           "description": "Custom API endpoint (optional)"
+        },
+        "postgresExplorer.ai.maxContextTokens": {
+          "type": "number",
+          "default": 8000,
+          "minimum": 512,
+          "description": "Approximate token budget for AI requests (system prompt + schema context + chat history). Oldest history is dropped first, then schema is trimmed, to keep requests within this budget."
         },
         "postgresExplorer.streaming.enabled": {
           "type": "boolean",
