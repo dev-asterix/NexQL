@@ -5,6 +5,20 @@ All notable changes to the PostgreSQL Explorer extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.10] - 2026-05-27
+> Nightly releases - v1.3.12
+
+### Added
+
+- **Full dataset toggle** — Added cell actions to switch result rendering between the limited preview and the full dataset path.
+- **Tree loader split** — Connection, database, schema, and table loading now live in dedicated loader modules for easier maintenance.
+
+### Changed
+
+- **Notebook toolbar actions & Codelens** — Updated notebook cell commands, labels, and icons to match the new query workflow.
+- **Query result plumbing** — Refined result rendering and webview management to support pooled webviews and lazy chart loading.
+- **Tree and execution internals** — Cleaned up connection utilities, SQL execution, and dashboard/provider wiring to align with the new module layout.
+
 ## [1.2.9] - 2026-05-23
 > Nightly releases - v1.3.11
 
