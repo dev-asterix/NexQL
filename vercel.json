@@ -1,5 +1,6 @@
 {
-  "outputDirectory": "docs",
+  "buildCommand": "npm run build:site",
+  "outputDirectory": "dist",
   "functions": {
     "api/**/*.js": {
       "memory": 128,

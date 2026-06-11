@@ -83,7 +83,7 @@
 
 /* ── Right panel (SQL Assistant) ──────────────────────── */
 .right-panel {
-  background: #101c32;
+  background: var(--vsc-sidebar-bg, var(--vsc-sidebar));
   border-left: 1px solid var(--vsc-border);
   display: flex;
   flex-direction: column;
@@ -195,7 +195,7 @@
   margin-bottom: 16px;
 }
 .action-card {
-  background: rgba(14, 24, 45, 0.82);
+  background: color-mix(in srgb, var(--vsc-text) 4%, var(--vsc-sidebar));
   border: 1px solid var(--vsc-border);
   border-radius: 6px;
   cursor: pointer;
@@ -207,8 +207,8 @@
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 .action-card:hover {
-  border-color: rgba(88, 166, 255, 0.4);
-  box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.4), 0 8px 24px rgba(88, 166, 255, 0.18);
+  border-color: color-mix(in srgb, var(--vsc-accent) 45%, var(--vsc-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-accent) 35%, transparent), 0 8px 24px color-mix(in srgb, var(--vsc-accent) 14%, transparent);
 }
 .action-card-icon {
   color: var(--vsc-muted);
@@ -269,15 +269,15 @@
   padding: 7px 9px;
 }
 .chat-msg.user {
-  background: rgba(255, 107, 22, 0.11);
-  border: 1px solid rgba(255, 107, 22, 0.28);
+  background: color-mix(in srgb, var(--vsc-orange) 11%, var(--vsc-sidebar));
+  border: 1px solid color-mix(in srgb, var(--vsc-orange) 28%, var(--vsc-border));
   border-radius: 12px 12px 4px 12px;
   color: var(--vsc-text);
   margin-left: 14px;
 }
 .chat-msg.assistant {
-  background: rgba(15, 23, 42, 0.62);
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: color-mix(in srgb, var(--vsc-text) 5%, var(--vsc-bg));
+  border: 1px solid var(--vsc-border);
   border-radius: 4px 12px 12px 12px;
   color: var(--vsc-text);
 }
@@ -544,8 +544,8 @@ html, body {
 /* ── Startup toast notification ───────────────────────── */
 .toast {
   align-items: center;
-  background: #0d1728;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--vsc-panel, var(--vsc-sidebar));
+  border: 1px solid var(--vsc-border);
   border-left: 4px solid var(--vsc-blue);
   border-radius: 6px;
   bottom: 36px;
@@ -607,8 +607,8 @@ html, body {
 }
 
 .tour-tooltip {
-  background: #0d1728;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: var(--vsc-panel, var(--vsc-sidebar));
+  border: 1px solid var(--vsc-border);
   border-left: 3px solid var(--vsc-orange);
   border-radius: 12px;
   box-shadow: 0 10px 36px rgba(0, 0, 0, 0.65), -2px 0 12px rgba(37, 99, 235, 0.18);
@@ -887,69 +887,6 @@ html, body {
     color: var(--vsc-foreground);
   }
   
-  .desktop-topbar {
-    align-items: center;
-    display: flex;
-    gap: 6px;
-    justify-content: flex-start;
-    padding: 8px 10px;
-    position: relative;
-  }
-  .topbar-menu-btn {
-    flex: 0 0 auto;
-    order: -1;
-  }
-  .desktop-topbar .hero-intro {
-    display: block; /* show intro */
-    flex: 1;
-    min-width: 0;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    overflow: hidden;
-    font-size: 11px;
-    margin: 0;
-    padding: 0 8px;
-  }
-  .topbar-actions {
-    align-items: center;
-    display: flex;
-    flex: 0 0 auto;
-    gap: 4px;
-    margin-left: auto;
-  }
-  .desktop-topbar-links {
-    display: none;
-    position: absolute;
-    top: calc(100% + 2px);
-    left: 0;
-    right: 0;
-    background: var(--vsc-sidebar-bg);
-    border: 1px solid var(--vsc-border);
-    border-radius: 4px;
-    flex-direction: column;
-    padding: 8px 0;
-    z-index: 100;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  }
-  .desktop-topbar-links.show {
-    display: flex;
-  }
-  .desktop-topbar-links button,
-  .desktop-topbar-links a {
-    padding: 8px 16px;
-    color: var(--vsc-text);
-    text-decoration: none;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    font-size: 12px;
-    text-align: left;
-    width: 100%;
-  }
-  .desktop-topbar-links button:hover,
-  .desktop-topbar-links a:hover {
-    background: var(--vsc-highlight);
-  }
   
   /* Shell layout */
   .titlebar {
@@ -1065,21 +1002,8 @@ html, body {
     display: none !important;
   }
 
-  body.editor-minimized {
-    height: auto;
-    overflow-y: auto;
-  }
-
-  body.editor-minimized .site-main {
-    height: auto;
-    min-height: 100vh;
-    overflow-y: auto;
-  }
-
   body.editor-minimized .hero-shell {
     height: auto;
-    overflow-y: auto;
-    scroll-snap-type: none;
   }
 }
 

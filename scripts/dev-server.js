@@ -70,6 +70,13 @@ app.post('/api/webhook', express.raw({ type: '*/*' }), wrapServerless(webhookHan
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Proxy NexQL theme JSON from sibling repo when available (offline dev without CDN).
+const nexqlThemesDir = path.join(__dirname, '../../NexQL-Themes/themes');
+if (fs.existsSync(nexqlThemesDir)) {
+  app.use('/themes', express.static(nexqlThemesDir));
+  console.log(`Serving /themes from ${nexqlThemesDir}`);
+}
+
 // Serve docs/ statically
 app.use(express.static(path.join(__dirname, '../docs')));
 

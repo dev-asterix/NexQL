@@ -332,7 +332,7 @@
 /* Code spotlight */
 .code-spotlight { border: 1px solid var(--vsc-border); border-left: 3px solid var(--vsc-accent); border-radius: 0 6px 6px 0; margin: 14px 0; overflow: hidden; }
 .code-spotlight-label { background: var(--surface); color: var(--vsc-muted); font-size: 9px; font-weight: 600; letter-spacing: .08em; padding: 4px 10px; }
-.code-spotlight-pre { background: var(--vsc-editor-bg, #1e1e1e); color: #d4d4d4; font-family: monospace; font-size: 12px; margin: 0; overflow-x: auto; padding: 10px; }
+.code-spotlight-pre { background: var(--vsc-editor-bg, var(--vsc-bg)); color: var(--vsc-text); font-family: var(--font-mono, monospace); font-size: 12px; margin: 0; overflow-x: auto; padding: 10px; }
 .code-spotlight-note { background: var(--surface); color: var(--vsc-muted); font-size: 10.5px; margin: 0; padding: 5px 10px; }
 
 /* Info banners */

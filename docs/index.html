@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>NexQL - PostgreSQL VS Code Extension with SQL Notebooks, AI Assistant, and Explorer</title>
   <meta name="description"
     content="NexQL is a PostgreSQL extension for VS Code with SQL notebooks, database explorer, AI SQL assistant, schema tools, and performance optimization workflows.">
@@ -30,7 +30,7 @@
   <meta name="theme-color" content="#07080E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script type="application/ld+json">
     {
@@ -66,43 +66,43 @@
 
 <body class="editor-minimized">
   <main class="site-main">
-    <section class="hero-shell" aria-label="NexQL interactive homepage demo">
-      <div class="desktop-topbar landing-topbar" role="navigation" aria-label="NexQL top navigation">
-        <button class="mobile-menu-btn topbar-menu-btn" id="btn-toggle-topbar" aria-label="Toggle Navigation"><svg
-            viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none">
+    <header class="site-header landing-topbar" role="banner">
+      <div class="site-header-inner">
+        <button class="site-header-menu-btn mobile-menu-btn" id="btn-toggle-topbar" type="button"
+          aria-label="Toggle navigation" aria-expanded="false" aria-controls="site-nav"><svg viewBox="0 0 24 24"
+            stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
             <line x1="3" y1="12" x2="21" y2="12"></line>
             <line x1="3" y1="6" x2="21" y2="6"></line>
             <line x1="3" y1="18" x2="21" y2="18"></line>
           </svg></button>
-        <div class="topbar-brand immersive-brand" aria-hidden="false">
-          <img class="immersive-brand-mark" src="assets/NexQL.png" alt="NexQL" aria-hidden="true">
-          <div class="immersive-brand-text">
-            <strong class="immersive-brand-title">NexQL</strong>
-            <span class="immersive-brand-sub">VS Code Extension</span>
+        <a href="#top" class="site-logo" aria-label="NexQL — back to top">
+          <img class="site-logo-img" src="assets/NexQL.png" alt="" width="34" height="34">
+          <span class="site-logo-text brand-gradient">NexQL</span>
+          <span class="site-logo-badge">for VS Code</span>
+        </a>
+        <nav class="site-nav landing-topbar-nav-collapsible" id="site-nav" aria-label="Page sections">
+          <a href="#features">Features</a>
+          <a href="#ai">AI</a>
+          <a href="#compare">Compare</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+          <a href="https://nexql-themes.astrx.dev/" target="_blank" rel="noopener noreferrer"
+            class="site-nav-external">Themes ↗</a>
+        </nav>
+        <div class="site-header-actions">
+          <div class="theme-picker" id="theme-picker">
+            <button type="button" class="theme-picker-trigger" id="theme-picker-trigger" aria-haspopup="listbox"
+              aria-expanded="false" aria-controls="theme-picker-menu" aria-label="NexQL color theme">
+              <span class="theme-picker-dot" id="theme-picker-dot" aria-hidden="true"></span>
+              <span class="theme-picker-label" id="theme-picker-label">Loading…</span>
+              <svg class="theme-picker-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round" />
+              </svg>
+            </button>
+            <div class="theme-picker-menu" id="theme-picker-menu" role="listbox" aria-label="NexQL themes" hidden>
+            </div>
           </div>
-        </div>
-        <div class="desktop-topbar-links landing-topbar-nav-collapsible">
-          <button type="button" data-landing-scroll="features">Features</button>
-          <button type="button" data-landing-scroll="ai">AI</button>
-          <button type="button" data-landing-scroll="compare">Compare</button>
-          <button type="button" data-landing-scroll="faq">FAQ</button>
-          <button type="button" id="btn-landing-pricing">Pricing</button>
-          <a href="https://github.com/dev-asterix/PgStudio" target="_blank" rel="noopener noreferrer">GitHub</a>
-          <a class="landing-nav-install" href="#install">Install — free</a>
-        </div>
-        <div class="topbar-actions">
-          <button class="topbar-icon-btn" id="theme-toggle" type="button" aria-label="Switch to dark theme"
-            data-tooltip="Toggle theme">
-            <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="4"></circle>
-              <path
-                d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12">
-              </path>
-            </svg>
-            <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
-            </svg>
-          </button>
           <button class="topbar-icon-btn play-tour-btn" id="play-tour" type="button"
             aria-label="Start guided product tour" data-tooltip="Play product tour">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -111,7 +111,9 @@
           </button>
         </div>
       </div>
+    </header>
 
+    <section class="hero-shell" aria-label="NexQL interactive homepage demo">
       <!-- Immersive decorative layer: bg-grid, orbit ring, context nodes -->
       <div class="workbench-bg-grid" aria-hidden="true"></div>
       <div class="shell-orbit" aria-hidden="true"></div>
@@ -545,6 +547,7 @@
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="js/pricing.js"></script>
   <script src="js/checkout.js"></script>
+  <script type="module" src="js/theme-loader.mjs"></script>
   <script src="js/bootstrap.js"></script>
 </body>
 

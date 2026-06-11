@@ -4,7 +4,10 @@ function scrollToLandingAnchor(anchorId) {
 
   const scrollTarget = () => {
     target.scrollIntoView({ behavior: "smooth", block: "start" });
-    document.querySelector(".desktop-topbar-links")?.classList.remove("show");
+    const nav = document.getElementById("site-nav");
+    nav?.classList.remove("show");
+    document.getElementById("btn-toggle-topbar")?.setAttribute("aria-expanded", "false");
+    syncSiteHeaderOffset();
   };
 
   if (document.body.classList.contains("editor-minimized")) {
@@ -15,26 +18,31 @@ function scrollToLandingAnchor(anchorId) {
   window.setTimeout(scrollTarget, 400);
 }
 
-function scrollToLandingPricing() {
-  scrollToLandingAnchor("landing-price-title");
+function wireSiteHeaderScrollState() {
+  const header = document.querySelector(".site-header.landing-topbar");
+  if (!header) return;
+
+  const sync = () => {
+    header.classList.toggle("is-scrolled", window.scrollY > 8);
+  };
+
+  window.addEventListener("scroll", sync, { passive: true });
+  sync();
 }
 
 function wireLandingChrome() {
-  document.querySelectorAll("[data-landing-scroll]").forEach((node) => {
-    node.addEventListener("click", () => {
-      const anchor = node.getAttribute("data-landing-scroll");
-      if (anchor) scrollToLandingAnchor(anchor);
+  document.querySelectorAll('.site-nav a[href^="#"], a.site-logo[href^="#"]').forEach((link) => {
+    link.addEventListener("click", (e) => {
+      const hash = link.getAttribute("href");
+      if (!hash || hash === "#") return;
+      e.preventDefault();
+      scrollToLandingAnchor(hash.slice(1));
     });
   });
 
-  document.getElementById("btn-landing-pricing")?.addEventListener("click", () => scrollToLandingPricing());
-  document.getElementById("footer-landing-pricing")?.addEventListener("click", () => scrollToLandingPricing());
-
-  document.querySelectorAll('a[href="#install"]').forEach((link) => {
-    link.addEventListener("click", (e) => {
-      e.preventDefault();
-      scrollToLandingAnchor("install");
-    });
+  document.getElementById("footer-landing-pricing")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    scrollToLandingAnchor("pricing");
   });
 
   document.querySelectorAll("[data-landing-open-demo]").forEach((node) => {
@@ -86,6 +94,7 @@ function wireEditorLayoutToggles() {
 function initializeDesktopExperience() {
   wireThemeToggle();
   wireTour();
+  wireSiteHeaderScrollState();
   wireLandingChrome();
   wireWindowControls();
   wireActivityBar();
@@ -119,12 +128,25 @@ function initializeDesktopExperience() {
   });
 }
 
+function syncSiteHeaderOffset() {
+  const header = document.querySelector(".site-header.landing-topbar");
+  if (!header) {
+    return;
+  }
+  document.documentElement.style.setProperty(
+    "--site-header-offset",
+    `${Math.ceil(header.getBoundingClientRect().height)}px`,
+  );
+}
+
 function wireMobileUiToggles() {
   const btnTop = document.getElementById("btn-toggle-topbar");
-  const topLinks = document.querySelector(".desktop-topbar-links");
+  const topLinks = document.getElementById("site-nav");
   if (btnTop && topLinks) {
     btnTop.addEventListener("click", () => {
-      topLinks.classList.toggle("show");
+      const open = topLinks.classList.toggle("show");
+      btnTop.setAttribute("aria-expanded", open ? "true" : "false");
+      requestAnimationFrame(syncSiteHeaderOffset);
     });
   }
 
@@ -171,10 +193,16 @@ function wireMobileUiToggles() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  if (window.NexqlThemes?.ready) {
+    await window.NexqlThemes.ready.catch(() => {});
+  }
+
   if (typeof loadHtmlPartials === "function") {
     await loadHtmlPartials();
   }
 
   initializeDesktopExperience();
   wireMobileUiToggles();
+  syncSiteHeaderOffset();
+  window.addEventListener("resize", syncSiteHeaderOffset, { passive: true });
 });

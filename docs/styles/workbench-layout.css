@@ -420,6 +420,7 @@ div.tree-row {
 
 
 .editor-content {
+  background: var(--vsc-bg);
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -580,7 +581,7 @@ div.tree-row {
 }
 
 .cell {
-  background: #0d1728;
+  background: var(--vsc-editor-bg, var(--vsc-bg));
   border: 1px solid var(--vsc-border);
   border-radius: 10px;
   margin: 16px 18px;
@@ -593,6 +594,8 @@ div.tree-row {
   border-bottom: 1px solid var(--vsc-border);
   display: flex;
   gap: 8px;
+  padding: 5px 10px;
+}
 
 @keyframes shellClose {
   0% {
@@ -610,8 +613,6 @@ div.tree-row {
 .shell.closing {
   animation: shellClose 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
   pointer-events: none;
-}
-  padding: 5px 10px;
 }
 
 .cell-lens button {
@@ -632,7 +633,7 @@ div.tree-row {
 }
 
 .cell-lens button:hover {
-  background: rgba(37, 99, 235, 0.12);
+  background: color-mix(in srgb, var(--vsc-accent) 12%, transparent);
   color: var(--vsc-text);
 }
 
@@ -642,42 +643,39 @@ div.tree-row {
   color: var(--vsc-orange) !important;
 }
 
+.sql-editor-wrap {
+  background: var(--vsc-editor-bg, var(--vsc-bg));
+  display: flex;
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Mono", monospace);
+  position: relative;
+}
+
 .sql {
-  background: var(--surface);
+  background: var(--vsc-editor-bg, var(--vsc-bg));
   color: var(--vsc-text);
-  font-family: "Fira Mono", monospace;
+  flex: 1;
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Mono", monospace);
   font-size: 12px;
   line-height: 1.6;
+  margin: 0;
   overflow-x: auto;
   padding: 10px 12px;
 }
 
-.sql {
-  background: rgba(10, 16, 30, 0.72);
-}
-
 .kw {
-  color: var(--vsc-blue);
+  color: var(--sql-kw, var(--vsc-blue));
 }
 
 .fn {
-  color: color-mix(in srgb, var(--vsc-blue) 58%, var(--vsc-text));
+  color: var(--sql-fn, var(--vsc-blue));
 }
 
 .str {
-  color: var(--vsc-orange);
+  color: var(--sql-str, var(--vsc-orange));
 }
 
 .comment {
-  color: var(--vsc-muted);
-}
-
-.kw {
-  color: color-mix(in srgb, var(--vsc-blue) 70%, #ffffff);
-}
-
-.fn {
-  color: var(--vsc-blue);
+  color: var(--sql-comment, var(--vsc-muted));
 }
 
 .query-result {
@@ -704,14 +702,15 @@ div.tree-row {
 }
 
 .query-result th {
-  background: rgba(37, 99, 235, 0.12);
+  background: color-mix(in srgb, var(--vsc-text) 6%, var(--vsc-bg));
   color: var(--vsc-muted);
   font-weight: 500;
   text-align: left;
 }
 
 .query-result td {
-  border-bottom-color: rgba(148, 163, 184, 0.1);
+  border-bottom-color: var(--vsc-border);
+  color: var(--vsc-text);
 }
 
 .query-result.running .result-meta::after {
@@ -862,8 +861,8 @@ div.tree-row {
 }
 
 .insight-panel {
-  background: rgba(37, 99, 235, 0.07);
-  border: 1px solid rgba(37, 99, 235, 0.3);
+  background: color-mix(in srgb, var(--vsc-accent) 8%, var(--vsc-bg));
+  border: 1px solid color-mix(in srgb, var(--vsc-accent) 28%, var(--vsc-border));
   border-radius: 6px;
   margin: 0 18px 16px;
   padding: 10px 12px;
@@ -885,8 +884,8 @@ div.tree-row {
 }
 
 .query-output-hint {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px dashed rgba(148, 163, 184, 0.28);
+  background: color-mix(in srgb, var(--vsc-text) 4%, var(--vsc-bg));
+  border: 1px dashed color-mix(in srgb, var(--vsc-border) 72%, var(--vsc-muted));
   border-radius: 8px;
   color: var(--vsc-muted);
   font-size: 12px;
@@ -910,7 +909,7 @@ div.tree-row {
 
 .statusbar {
   align-items: center;
-  background: linear-gradient(90deg, #1f3a8a 0%, #1d4ed8 100%);
+  background: var(--vsc-statusbar);
   display: flex;
   font-size: 10px;
   gap: 10px;
@@ -919,7 +918,7 @@ div.tree-row {
 }
 
 .statusbar span {
-  color: rgba(255, 255, 255, 0.95);
+  color: color-mix(in srgb, var(--badgeFg, #fff) 92%, transparent);
   white-space: nowrap;
 }
 
@@ -983,11 +982,19 @@ div.tree-row {
 }
 
 /* ── SQL Editor: line-number gutter + blinking cursor ──── */
-.sql-editor-wrap { display: flex; font-family: "Fira Mono", monospace; position: relative; }
 .sql-gutter {
-  border-right: 1px solid var(--vsc-border); color: var(--vsc-muted); display: flex;
-  flex-direction: column; flex-shrink: 0; font-size: 11px; opacity: .4;
-  padding: 10px 6px 10px 8px; text-align: right; user-select: none; width: 36px;
+  background: color-mix(in srgb, var(--vsc-text) 3%, var(--vsc-editor-bg, var(--vsc-bg)));
+  border-right: 1px solid var(--vsc-border);
+  color: var(--vsc-muted);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  font-size: 11px;
+  opacity: 0.55;
+  padding: 10px 6px 10px 8px;
+  text-align: right;
+  user-select: none;
+  width: 36px;
 }
 .sql-gutter span { line-height: 1.6; }
 .editor-cursor {

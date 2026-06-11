@@ -75,11 +75,16 @@ function renderRevenueChart() {
   const existing = Chart.getChart(canvas);
   if (existing) existing.destroy();
 
-  // Dark-only tokens — aligned with the immersive palette
-  const gridColor = "rgba(148,163,184,0.1)";
-  const textColor = "#9fb0cc";
-  const barColor = "rgba(34,211,238,0.55)";
-  const barBorder = "#22d3ee";
+  const rootStyle = getComputedStyle(document.documentElement);
+  const readVar = (name, fallback) => rootStyle.getPropertyValue(name).trim() || fallback;
+  const accent = readVar("--accent", "#6c4cf0");
+  const muted = readVar("--muted", "#98a2bd");
+  const panel = readVar("--panel", "#0a0d18");
+  const fg = readVar("--fg", "#e8ebf6");
+  const gridColor = `color-mix(in srgb, ${muted} 18%, transparent)`;
+  const textColor = muted;
+  const barColor = `color-mix(in srgb, ${accent} 55%, transparent)`;
+  const barBorder = accent;
 
   new Chart(canvas, {
     type: "bar",
@@ -100,11 +105,11 @@ function renderRevenueChart() {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: "#0d1728",
-          borderColor: "rgba(34,211,238,0.28)",
+          backgroundColor: panel,
+          borderColor: `color-mix(in srgb, ${accent} 28%, transparent)`,
           borderWidth: 1,
-          titleColor: "#f8fbff",
-          bodyColor: "#9fb0cc",
+          titleColor: fg,
+          bodyColor: muted,
           cornerRadius: 6,
           callbacks: {
             label: (ctx) => `$${ctx.parsed.y.toLocaleString()}`

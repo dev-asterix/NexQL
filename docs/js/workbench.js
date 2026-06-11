@@ -17,6 +17,9 @@ function setEditorMinimizedState(minimized) {
   if (minimizedOverview) {
     minimizedOverview.setAttribute("aria-hidden", minimized ? "false" : "true");
   }
+  if (typeof syncSiteHeaderOffset === "function") {
+    requestAnimationFrame(syncSiteHeaderOffset);
+  }
 }
 
 function openFile(fileName) {
@@ -163,27 +166,18 @@ function wireNavigation() {
   });
 }
 
-// ── Theme (dark-only) ─────────────────────────────────────
-function applyTheme(_theme) {
-  if (!document.body) return;
-  // Always dark — any stored or passed theme value is ignored
-  document.body.setAttribute("data-theme", "dark");
-  const statusTheme = document.getElementById("sb-theme");
-  if (statusTheme) statusTheme.textContent = "Theme: Dark";
-  // Re-render chart with dark tokens unconditionally
-  if (typeof Chart !== "undefined") {
-    const canvas = document.getElementById("revenue-chart");
-    if (canvas && Chart.getChart(canvas)) {
-      Chart.getChart(canvas).destroy();
-    }
-    window.setTimeout(renderRevenueChart, 40);
+// ── Theme (NexQL Themes family via theme-loader.mjs) ───────
+function applyTheme(themeId) {
+  if (themeId && window.NexqlThemes?.apply) {
+    window.NexqlThemes.apply(themeId);
   }
 }
 
 function wireThemeToggle() {
-  applyTheme("dark");
-  // Toggle button is hidden via CSS; listener kept for safety but writes nothing
-  document.getElementById("theme-toggle")?.addEventListener("click", () => applyTheme("dark"));
+  // theme-loader.mjs owns select + apply; wait if module still loading
+  if (window.NexqlThemes?.ready) {
+    window.NexqlThemes.ready.catch(() => {});
+  }
 }
 
 // ── Search ────────────────────────────────────────────────

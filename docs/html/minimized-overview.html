@@ -12,28 +12,31 @@
     <meta itemprop="priceCurrency" content="USD">
   </div>
 
-  <!-- Centered hero (nexql layout): copy → trust → mini preview opens full workbench -->
-  <div class="hero-layout landing-viewport hero-layout--centered">
+  <!-- Two-column hero (NexQL Themes layout): copy left, interactive preview right -->
+  <div class="hero-layout landing-viewport" id="top">
 
-    <div class="hero-copy-block">
-      <p class="hero-trust-badge hero-pill" aria-live="polite">
-        <span class="badge-pulse" aria-hidden="true"></span>
-        <span><span id="min-overview-version-pill">v—</span> · Free &amp; open source · 4 AI providers</span>
-      </p>
+    <div class="hero-col-left">
+      <div class="hero-eyebrow" aria-live="polite">
+        <a href="https://nexql-themes.astrx.dev/" target="_blank" rel="noopener noreferrer" class="hero-product-badge">NexQL Themes</a>
+        <span class="hero-eyebrow-sep" aria-hidden="true">·</span>
+        <span><span id="min-overview-version-pill">v—</span> · 11 editor palettes · 4 AI providers</span>
+      </div>
 
       <h1 class="landing-hero-title">
         PostgreSQL, without the<br>
-        <span class="grad-text">context switching.</span>
+        <span class="hero-serif-em brand-gradient">context switching.</span>
       </h1>
 
       <p class="min-lead" itemprop="description">Connect to a database, run a notebook query, watch the chart build, and
-        ask a schema-aware AI why it&apos;s slow — all inside VS Code. Zero browser tabs.</p>
+        ask a schema-aware AI why it&apos;s slow — all inside VS Code.
+        <strong class="min-lead-strong">Pick a theme in the header and this whole page repaints to match.</strong></p>
 
       <div class="minimized-actions">
         <a class="min-cta primary" href="https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer"
           target="_blank" rel="noopener noreferrer"><span aria-hidden="true">⬇</span> Install from Marketplace</a>
         <button class="min-cta secondary" id="open-editor-shortcut" type="button"><span aria-hidden="true">▶</span> Run
           the demo</button>
+        <a class="min-cta tertiary" href="https://nexql-themes.astrx.dev/" target="_blank" rel="noopener noreferrer">Browse NexQL Themes ↗</a>
       </div>
 
       <div class="hero-kpi-strip hero-kpis hero-trust" aria-live="polite">
@@ -56,47 +59,15 @@
       </div>
     </div>
 
-    <div class="hero-stage-centered">
-      <!--
-        .mini-editor-preview: workbench.js wires inner buttons + container click → open demo
-      -->
-      <div class="hero-editor-stage hero-editor-stage--immersive">
+    <div class="hero-col-right">
+      <!-- .mini-editor-preview: workbench.js wires inner buttons + container click → open demo -->
+      <div class="hero-editor-stage hero-editor-stage--hero">
         <p class="hero-editor-caption">
           <span class="hero-editor-caption-label">Interactive workspace</span>
           <span class="hero-editor-caption-hint" aria-hidden="true">Click to open the full demo</span>
         </p>
 
-        <div class="landing-demo-stage">
-          <div class="landing-orbit-ring" aria-hidden="true"></div>
-
-          <div class="landing-float-node landing-float-node--one" aria-hidden="true">
-            <b>Schema context</b><span>orders, customers</span>
-          </div>
-          <div class="landing-float-node landing-float-node--two" aria-hidden="true">
-            <b>Safe env labels</b><span><span class="landing-env-dev">DEV</span> / <span
-                class="landing-env-prod">PROD</span></span>
-          </div>
-          <div class="landing-float-node landing-float-node--three" aria-hidden="true">
-            <b>Plan insight</b><span>Index recommendation</span>
-          </div>
-
-          <div class="landing-cmd-palette" aria-hidden="true">
-            <div class="landing-cmd-palette-input"><span class="landing-cmd-gt">&gt;</span> NexQL: optimize current
-              query</div>
-            <div class="landing-cmd-row landing-cmd-row--active">
-              <span class="landing-cmd-icon" aria-hidden="true">✦</span>
-              <span>Ask AI with schema context</span>
-            </div>
-            <div class="landing-cmd-row">
-              <span class="landing-cmd-icon" aria-hidden="true">▷</span>
-              <span>Run selected SQL cell</span>
-            </div>
-            <div class="landing-cmd-row">
-              <span class="landing-cmd-icon" aria-hidden="true">⬡</span>
-              <span>Open table explorer</span>
-            </div>
-          </div>
-
+        <div class="landing-demo-stage landing-demo-stage--hero">
           <div class="mini-wb-preview mini-wb-preview--hero mini-editor-preview"
             aria-label="NexQL interactive preview — click to open demo">
 
@@ -524,7 +495,7 @@
 
   <hr class="section-divider" aria-hidden="true">
 
-  <section class="landing-section" aria-labelledby="landing-price-title">
+  <section class="landing-section" id="pricing" aria-labelledby="landing-price-title">
     <span class="eyebrow">Pricing</span>
     <h2 class="section-title" id="landing-price-title">Simple, transparent pricing</h2>
     <p class="section-sub">Free for everyone. Upgrade to Sponsor for individual pro features, or Singularity for teams
@@ -576,7 +547,7 @@
       </div>
  
       <div class="pricing-card" data-pricing-tier="singularity">
-        <span class="pricing-badge" style="background: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.6); border: 1px solid rgba(255, 255, 255, 0.15)">COMING SOON</span>
+        <span class="pricing-badge pricing-badge--muted">COMING SOON</span>
         <div class="pricing-name">Singularity</div>
         <div class="pricing-desc">Teams — org license with cloud sync for shared connection profiles</div>
         <div class="pricing-amount"><span class="pricing-amount-value">$9</span> <span class="period">/ mo</span></div>
@@ -590,8 +561,7 @@
         <button class="pricing-cta primary pricing-cta-pay" type="button" data-tier="singularity" disabled>Coming Soon</button>
       </div>
     </div>
-    <p class="pricing-activation-note"
-      style="text-align:center;color:var(--text-muted,#9ca3af);font-size:13px;margin-top:16px">
+    <p class="pricing-activation-note">
       After checkout you’ll get a license key — click <b>Activate in VS Code</b> or run
       <b>NexQL: Activate License</b> from the command palette. Your key is also emailed to you.
       <br>Already subscribed? <a href="#" class="manage-subscription-link" data-manage-subscription>Manage or cancel your subscription</a>.
@@ -624,6 +594,7 @@
       <div class="footer-col">
         <h4>Resources</h4>
         <a href="https://nexql.astrx.dev/">Documentation</a>
+        <a href="https://nexql-themes.astrx.dev/" target="_blank" rel="noopener noreferrer">NexQL Themes ↗</a>
         <a href="https://github.com/dev-asterix/PgStudio/blob/main/CHANGELOG.md" target="_blank"
           rel="noopener noreferrer">Changelog</a>
       </div>
