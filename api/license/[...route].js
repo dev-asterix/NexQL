@@ -1,5 +1,7 @@
 // Catch-all router for /api/license/* — keeps Hobby-plan function count under 12.
 
+const { catchAllHead } = require('../_lib/catch-all-route');
+
 const handlers = {
   validate: require('../_lib/handlers/license-validate'),
   lookup: require('../_lib/handlers/license-lookup'),
@@ -9,14 +11,8 @@ const handlers = {
   history: require('../_lib/handlers/license-history'),
 };
 
-function routeName(req) {
-  const raw = req.query.route;
-  if (Array.isArray(raw)) return raw[0];
-  return raw;
-}
-
 module.exports = async (req, res) => {
-  const handler = handlers[routeName(req)];
+  const handler = handlers[catchAllHead(req, 'route', 'license')];
   if (!handler) {
     return res.status(404).json({ error: 'Not Found' });
   }

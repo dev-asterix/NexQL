@@ -66,7 +66,13 @@ const wrapServerless = (handler) => {
 const wrapCatchAll = (handler, paramName) => {
   return wrapServerless(async (req, res) => {
     const raw = req.params[paramName];
-    req.query[paramName] = raw ? raw.split('/').filter(Boolean) : [];
+    let segments = [];
+    if (Array.isArray(raw)) {
+      segments = raw.filter(Boolean);
+    } else if (typeof raw === 'string' && raw.length > 0) {
+      segments = raw.split('/').filter(Boolean);
+    }
+    req.query[paramName] = segments;
     return handler(req, res);
   });
 };

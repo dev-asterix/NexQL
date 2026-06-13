@@ -1,5 +1,7 @@
 // Catch-all router for /api/sync/* — keeps Hobby-plan function count under 12.
 
+const { catchAllSegments } = require('../_lib/catch-all-route');
+
 const manifest = require('../_lib/handlers/sync-manifest');
 const items = require('../_lib/handlers/sync-items');
 const shares = require('../_lib/handlers/sync-shares');
@@ -8,15 +10,8 @@ const keys = require('../_lib/handlers/sync-keys');
 const quota = require('../_lib/handlers/sync-quota');
 const devices = require('../_lib/handlers/sync-devices');
 
-function pathSegments(req) {
-  const raw = req.query.path;
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'string' && raw) return [raw];
-  return [];
-}
-
 module.exports = async (req, res) => {
-  const segments = pathSegments(req);
+  const segments = catchAllSegments(req, 'path', 'sync');
   const [head, id] = segments;
 
   if (head === 'manifest' && segments.length === 1) {

@@ -11,6 +11,21 @@
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
             ],
+            "preLaunchTask": "${defaultBuildTask}",
+            "settings": {
+                "postgresExplorer.license.endpoint": "http://localhost:3000/api"
+            }
+        },
+        {
+            "name": "Run Extension (production license API)",
+            "type": "extensionHost",
+            "request": "launch",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/dist/**/*.js"
+            ],
             "preLaunchTask": "${defaultBuildTask}"
         },
         {
