@@ -46,3 +46,9 @@ graphify-out/
 packages/
 package.json.dev-bak
 NexQL-backend/
+
+# Vendored nexql-mcp binaries (populated by make vendor-nexql-mcp / CI)
+bin/nexql-mcp/**/nexql-mcp
+bin/nexql-mcp/**/nexql-mcp.exe
+!bin/nexql-mcp/**/.gitkeep
+!bin/nexql-mcp/README.md

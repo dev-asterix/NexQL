@@ -249,19 +249,6 @@ export type ConfigurationTarget = typeof ConfigurationTarget[keyof typeof Config
 // Range and CodeLens used by providers
 export class Range { constructor(public startLine: number, public startChar: number, public endLine: number, public endChar: number) { } }
 export class CodeLens { constructor(public range: Range, public command?: any) { } }
-export class CodeActionKind {
-  static readonly Empty = new CodeActionKind('empty');
-  static readonly QuickFix = new CodeActionKind('quickfix');
-  static readonly Refactor = new CodeActionKind('refactor');
-  constructor(public readonly value: string) {}
-}
-export class CodeAction {
-  constructor(public title: string, public kind?: CodeActionKind) {}
-  public edit?: any;
-  public command?: any;
-  public diagnostics?: any[];
-  public isPreferred?: boolean;
-}
 export interface CodeActionProvider {
   provideCodeActions(document: any, range: any, context: any, token: any): any;
 }
@@ -302,6 +289,15 @@ export const lm = {
 } as any;
 export class McpHttpServerDefinition {
   constructor(public label: string, public uri: Uri, public headers?: Record<string, string>) {}
+}
+export class McpStdioServerDefinition {
+  constructor(
+    public label: string,
+    public command: string,
+    public args?: string[],
+    public env?: Record<string, string | number | null>,
+    public version?: string
+  ) {}
 }
 export const LanguageModelChatMessage = { User: (s: string) => ({ role: 'user', content: s }), Assistant: (s: string) => ({ role: 'assistant', content: s }) } as any;
 
@@ -386,6 +382,7 @@ const vscode = {
   env,
   lm,
   McpHttpServerDefinition,
+  McpStdioServerDefinition,
   ViewColumn: Object.assign({}, ViewColumn, { Beside: 4 }),
   Webview,
   WebviewPanel,

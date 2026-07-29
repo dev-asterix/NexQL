@@ -355,9 +355,9 @@ NexQL ships a built-in **Model Context Protocol (MCP) server** that exposes your
 - **Auto-Discovery** — Registers with VS Code's MCP registry automatically; no manual URL or config needed.
 - **Read-Only DB Tools** — Schema discovery, safe SQL execution, EXPLAIN, join-path traversal, and performance analytics.
 - **Schema Grounding** — Agents are instructed to verify live schema before writing SQL, preventing hallucinated table names.
-- **Session Security** — Per-session bearer token, idle TTL sweep, and 200 req/min rate limit.
-- **Persistent Token, Fixed Port (v2.2.1+)** — The bearer token survives extension host restarts (stored in `SecretStorage`), and `postgresExplorer.mcp.port` lets you pin a fixed local port instead of a new random one every restart — handy for external clients like Cursor/Antigravity that need a stable endpoint to hard-code.
-- **Configure** via **NexQL Settings → Preferences** — enable/disable, set a fixed port, view port/token, toggle auto-start.
+- **Stdio Spawn** — VS Code registers a `McpStdioServerDefinition` and spawns the bundled `nexql-mcp` binary; no port or bearer token is exposed in the extension UI.
+- **Binary Resolution** — `postgresExplorer.mcp.binaryPath` can override the bundled binary when needed for debugging or custom installs.
+- **Configure** via **NexQL Settings → Preferences** — enable/disable MCP, set the binary path, and inspect the resolved binary/source.
 
 ### 🛡️ Safe Execution Model (Notebook-First)
 We believe AI should assist, not take over. **No query is ever executed automatically.**

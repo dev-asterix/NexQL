@@ -2350,11 +2350,16 @@ $('prefHistoryMaxItems').addEventListener('change', (e) => {
 $('prefMcpEnabled').addEventListener('change', (e) => {
   vscode.postMessage({ command: 'prefs/update', key: 'mcpEnabled', value: e.target.checked });
 });
-$('prefMcpPort').addEventListener('change', (e) => {
-  const n = Math.max(0, Math.min(65535, parseInt(e.target.value, 10) || 0));
-  e.target.value = n || '';
-  vscode.postMessage({ command: 'prefs/update', key: 'mcpPort', value: n });
-});
+const prefMcpBinaryPathEl = $('prefMcpBinaryPath');
+if (prefMcpBinaryPathEl) {
+  prefMcpBinaryPathEl.addEventListener('change', (e) => {
+    vscode.postMessage({
+      command: 'prefs/update',
+      key: 'mcpBinaryPath',
+      value: String(e.target.value || '').trim(),
+    });
+  });
+}
 
 // Setup click listeners for MCP instructions sub-tabs
 document.querySelectorAll('.mcp-tab-btn').forEach(btn => {
@@ -2392,68 +2397,57 @@ function handlePrefsMessage(message) {
       
       const mcpEnabled = !!message.prefs.mcpEnabled;
       $('prefMcpEnabled').checked = mcpEnabled;
-      $('prefMcpPort').value = message.prefs.mcpConfiguredPort || '';
+      if (prefMcpBinaryPathEl) {
+        prefMcpBinaryPathEl.value = message.prefs.mcpBinaryPath || '';
+      }
 
       if (mcpEnabled) {
         $('mcpConfigContainer').hidden = false;
+        const binary = message.prefs.mcpBinaryResolved || '-';
+        const source = message.prefs.mcpBinarySource || '-';
         if (message.prefs.mcpStarted) {
           $('mcpStatusDot').style.background = 'var(--success)';
-          $('mcpStatusText').textContent = 'Running';
+          $('mcpStatusText').textContent = message.prefs.mcpVersion
+            ? `Ready (stdio) · ${message.prefs.mcpVersion}`
+            : 'Ready (stdio)';
           $('mcpStatusText').style.color = 'var(--success)';
-          
-          const sseUrl = `http://127.0.0.1:${message.prefs.mcpPort}/mcp`;
-          const token = message.prefs.mcpToken;
-          
-          $('mcpSseUrl').textContent = sseUrl;
-          $('mcpBearerToken').textContent = token;
-          $('mcpSseUrlGeneric').textContent = sseUrl;
-          $('mcpAuthHeaderGeneric').textContent = `Authorization: Bearer ${token}`;
-          
-          // Cursor json guide
-          const cursorJson = JSON.stringify({
-            "name": "NexQL DB Server",
-            "type": "sse",
-            "url": sseUrl,
-            "headers": {
-              "Authorization": `Bearer ${token}`
-            }
-          }, null, 2);
-          $('mcpCodeCursor').textContent = cursorJson;
-          
-          // Antigravity guide
-          const antigravityConfig = `# Antigravity client configuration\nmcp:\n  servers:\n    nexql:\n      url: "${sseUrl}"\n      headers:\n        Authorization: "Bearer ${token}"`;
-          $('mcpCodeAntigravity').textContent = antigravityConfig;
-          
-          // Claude json guide
-          const claudeJson = JSON.stringify({
-            "mcpServers": {
-              "nexql": {
-                "command": "npx",
-                "args": [
-                  "-y",
-                  "@modelcontextprotocol/sdk",
-                  "connect",
-                  sseUrl,
-                  "--header",
-                  `Authorization: Bearer ${token}`
-                ]
-              }
-            }
-          }, null, 2);
-          $('mcpCodeClaude').textContent = claudeJson;
         } else {
           $('mcpStatusDot').style.background = 'var(--danger)';
-          $('mcpStatusText').textContent = 'Starting...';
+          $('mcpStatusText').textContent = message.prefs.mcpError || 'Binary not resolved';
           $('mcpStatusText').style.color = 'var(--danger)';
-          
-          $('mcpSseUrl').textContent = '-';
-          $('mcpBearerToken').textContent = '-';
-          $('mcpSseUrlGeneric').textContent = '-';
-          $('mcpAuthHeaderGeneric').textContent = '-';
-          $('mcpCodeCursor').textContent = '-';
-          $('mcpCodeAntigravity').textContent = '-';
-          $('mcpCodeClaude').textContent = '-';
         }
+        const resolvedEl = $('mcpBinaryResolved');
+        const sourceEl = $('mcpBinarySource');
+        if (resolvedEl) { resolvedEl.textContent = binary; }
+        if (sourceEl) { sourceEl.textContent = source; }
+
+        const skipped = Array.isArray(message.prefs.mcpSkippedConnections)
+          ? message.prefs.mcpSkippedConnections
+          : [];
+        const skippedContainer = $('mcpSkippedConnections');
+        const skippedList = $('mcpSkippedConnectionsList');
+        if (skippedContainer && skippedList) {
+          if (skipped.length > 0) {
+            skippedContainer.hidden = false;
+            skippedList.textContent = skipped.join(', ');
+          } else {
+            skippedContainer.hidden = true;
+            skippedList.textContent = '';
+          }
+        }
+
+        const stdioBlock = JSON.stringify({
+          mcpServers: {
+            nexql: {
+              command: binary !== '-' ? binary : 'nexql-mcp',
+              args: ['--stdio'],
+            },
+          },
+        }, null, 2);
+        const cursorEl = $('mcpCodeCursor');
+        const claudeEl = $('mcpCodeClaude');
+        if (cursorEl) { cursorEl.textContent = stdioBlock; }
+        if (claudeEl) { claudeEl.textContent = stdioBlock; }
       } else {
         $('mcpConfigContainer').hidden = true;
       }

@@ -1,4 +1,4 @@
-.PHONY: dev-pro dev-free all clean install build package package-nightly publish publish-nightly publish-ovsx publish-vsx git-tag test test-unit test-integration test-renderer test-all coverage docker-up docker-down
+.PHONY: dev-pro dev-free all clean install build package package-pro package-nightly publish publish-nightly publish-ovsx publish-vsx git-tag test test-unit test-integration test-renderer test-all coverage docker-up docker-down vendor-nexql-mcp
 
 # Variables
 NODE_BIN := node
@@ -67,17 +67,42 @@ package-free:
 	@echo "Building and packaging free VSIX..."
 	$(NPM_BIN) run vscode:prepublish
 	@if [ -f README.md ]; then cp README.md README.md.bak; fi
-	@cp MARKETPLACE.md README.md
-	@trap 'if [ -f README.md.bak ]; then mv README.md.bak README.md; fi' EXIT INT TERM; \
+	@MCP_BIN_STASH=""; \
+	if [ -d bin/nexql-mcp ]; then \
+	  MCP_BIN_STASH=$$(mktemp -d); \
+	  mv bin/nexql-mcp "$$MCP_BIN_STASH/nexql-mcp"; \
+	fi; \
+	cp MARKETPLACE.md README.md; \
+	trap 'if [ -f README.md.bak ]; then mv README.md.bak README.md; fi; if [ -n "$$MCP_BIN_STASH" ] && [ -d "$$MCP_BIN_STASH/nexql-mcp" ]; then mv "$$MCP_BIN_STASH/nexql-mcp" bin/nexql-mcp; rm -rf "$$MCP_BIN_STASH"; fi' EXIT INT TERM; \
 	$(VSCE_CMD) package --out postgres-explorer-free.vsix; \
 	EXIT_CODE=$$?; \
 	if [ -f README.md.bak ]; then mv README.md.bak README.md; fi; \
+	if [ -n "$$MCP_BIN_STASH" ] && [ -d "$$MCP_BIN_STASH/nexql-mcp" ]; then mv "$$MCP_BIN_STASH/nexql-mcp" bin/nexql-mcp; rm -rf "$$MCP_BIN_STASH"; fi; \
 	echo "Restored original README.md"; \
 	exit $$EXIT_CODE
+
+# Vendor nexql-mcp binary into bin/nexql-mcp/<platform-arch>/ for pro packaging.
+# Requires a built binary under ../mcp/target/release (or pass SRC=…).
+vendor-nexql-mcp:
+	@chmod +x ../mcp/scripts/vendor-nexql-mcp.sh
+	@../mcp/scripts/vendor-nexql-mcp.sh $(SRC)
 
 # Package the pro version
 package-pro:
 	@echo "Merging pro manifest, building, and packaging pro VSIX..."
+	@if [ "$(REQUIRE_MCP_BIN)" = "1" ]; then \
+	  if ! find bin/nexql-mcp -type f \( -name 'nexql-mcp' -o -name 'nexql-mcp.exe' \) -print -quit | grep -q .; then \
+	    echo "ERROR: REQUIRE_MCP_BIN=1 but no vendored nexql-mcp binary under bin/nexql-mcp/" >&2; \
+	    exit 1; \
+	  fi; \
+	fi
+	@if [ -x ../mcp/scripts/vendor-nexql-mcp.sh ]; then \
+	  if [ -x ../mcp/target/release/nexql-mcp ] || [ -x ../mcp/target/debug/nexql-mcp ] || [ -n "$(SRC)" ]; then \
+	    $(MAKE) vendor-nexql-mcp SRC="$(SRC)"; \
+	  elif [ "$(REQUIRE_MCP_BIN)" != "1" ]; then \
+	    echo "NOTE: nexql-mcp binary not found — packaging without vendored MCP (set SRC= or cargo build -p nexql-mcp)"; \
+	  fi; \
+	fi
 	@cp package.json package.json.bak
 	@trap 'if [ -f package.json.bak ]; then mv package.json.bak package.json; fi; (cd packages/pro/templates && find . -type f) | while read -r f; do rm -f "templates/$$f"; done; find templates -type d -empty -delete 2>/dev/null || true' EXIT INT TERM; \
 	$(NODE_BIN) ./scripts/merge-pro-manifest.js; \

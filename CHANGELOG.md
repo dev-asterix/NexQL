@@ -22,10 +22,10 @@ Quick links:
 - **Actionable Sign-In Banner** — A dismissible banner appears in the SQL Assistant when the free model is selected and you're not signed in, with **Sign in** and **Choose provider** actions.
 - **Clearer Auth Errors** — Failed NexQL Free AI requests due to a missing/expired session now surface a specific "sign in or switch provider" message instead of a generic failure.
 
-### 🔌 MCP Server — Fixed Port & Token
+### 🔌 MCP Server — stdio Cutover
 
-- **Persistent Bearer Token** — The MCP server's auth token is now stored in VS Code `SecretStorage` and reused across extension host restarts, instead of regenerating randomly every launch.
-- **Configurable Fixed Port** — New `postgresExplorer.mcp.port` setting (also exposed as a **Fixed port** field in **NexQL Settings → Preferences**) lets external clients (Cursor, Antigravity, Codex, etc.) hard-code the MCP endpoint. `0` (default) keeps the previous random-port behavior. Changing the port from the Preferences panel restarts the running server immediately — no window reload needed.
+- **Bundled Binary Spawn** — The MCP integration now registers a VS Code stdio definition that spawns the standalone `nexql-mcp` binary instead of exposing a local HTTP endpoint.
+- **Binary Path Override** — `postgresExplorer.mcp.binaryPath` can override the resolved binary for debugging or custom packaging, and the Preferences panel shows the resolved path/source.
 
 ### 🗄️ Database Indexing Enhancements & Redesign
 

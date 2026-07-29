@@ -777,7 +777,7 @@
             <div class="hub-setting-card-header">
               <div>
                 <h2 class="hub-setting-card-title">Model Context Protocol (MCP) <span class="hub-badge" style="margin-left: 8px; vertical-align: middle; background: color-mix(in srgb, var(--vscode-charts-orange, #e57373) 14%, transparent); color: var(--vscode-charts-orange, #e57373);">BETA</span></h2>
-                <p class="hub-setting-card-desc hub-prose">Expose NexQL's read-only database tools (schema search, describe object, run SELECT, EXPLAIN) as a local MCP server that other AI agents can connect to.</p>
+                <p class="hub-setting-card-desc hub-prose">Spawn the standalone <code>nexql-mcp</code> binary over stdio so Copilot and other MCP clients can use NexQL's schema-aware tools. Shares the same on-disk database index as the in-chat assistant.</p>
               </div>
             </div>
             <div class="hub-setting-card-body">
@@ -786,10 +786,9 @@
                 <span>Enable MCP Server</span>
               </label>
 
-              <label class="hub-card-checkbox-row" style="margin-top: 8px; gap: 8px;">
-                <span style="min-width: fit-content;">Fixed port</span>
-                <input type="number" id="prefMcpPort" min="0" max="65535" placeholder="0" style="max-width:100px" class="num-input">
-                <span style="opacity:0.6;font-size:0.85em">0 = random each restart</span>
+              <label class="hub-card-checkbox-row" style="margin-top: 8px; gap: 8px; align-items: center;">
+                <span style="min-width: fit-content;">Binary path</span>
+                <input type="text" id="prefMcpBinaryPath" placeholder="auto (bundled / PATH)" style="flex:1; min-width: 180px" class="num-input">
               </label>
 
               <!-- Connection details and setup instructions -->
@@ -799,14 +798,23 @@
                   <span id="mcpStatusText" style="font-weight: 500;">Connecting...</span>
                 </div>
 
+                <div id="mcpSkippedConnections" hidden style="margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--vscode-charts-orange, #e57373) 35%, var(--vscode-widget-border)); background: color-mix(in srgb, var(--vscode-charts-orange, #e57373) 8%, transparent); font-size: 0.9em;">
+                  <strong style="display: block; margin-bottom: 4px;">Skipped connections (SSH not supported for MCP)</strong>
+                  <span id="mcpSkippedConnectionsList" style="color: var(--vscode-descriptionForeground);"></span>
+                </div>
+
                 <div class="mcp-details" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; font-size: 0.9em; opacity: 0.9;">
                   <div>
-                    <strong style="display: inline-block; width: 120px;">SSE URL:</strong>
-                    <code id="mcpSseUrl" class="mono-cell" style="padding: 2px 6px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 4px; word-break: break-all;">-</code>
+                    <strong style="display: inline-block; width: 120px;">Transport:</strong>
+                    <code class="mono-cell" style="padding: 2px 6px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 4px;">stdio</code>
                   </div>
                   <div>
-                    <strong style="display: inline-block; width: 120px;">Bearer Token:</strong>
-                    <code id="mcpBearerToken" class="mono-cell" style="padding: 2px 6px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 4px; word-break: break-all;">-</code>
+                    <strong style="display: inline-block; width: 120px;">Binary:</strong>
+                    <code id="mcpBinaryResolved" class="mono-cell" style="padding: 2px 6px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 4px; word-break: break-all;">-</code>
+                  </div>
+                  <div>
+                    <strong style="display: inline-block; width: 120px;">Source:</strong>
+                    <code id="mcpBinarySource" class="mono-cell" style="padding: 2px 6px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 4px;">-</code>
                   </div>
                 </div>
 
@@ -817,50 +825,30 @@
                   <div class="mcp-tabs" style="display: flex; gap: 4px; border-bottom: 1px solid var(--vscode-widget-border); margin-bottom: 12px;">
                     <button type="button" class="mcp-tab-btn active" data-provider="cursor" style="padding: 6px 12px; background: none; border: none; border-bottom: 2px solid var(--vscode-focusBorder); color: var(--vscode-foreground); cursor: pointer; font-family: inherit; font-size: 0.9em;">Cursor</button>
                     <button type="button" class="mcp-tab-btn" data-provider="copilot" style="padding: 6px 12px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--vscode-descriptionForeground); cursor: pointer; font-family: inherit; font-size: 0.9em;">GitHub Copilot</button>
-                    <button type="button" class="mcp-tab-btn" data-provider="antigravity" style="padding: 6px 12px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--vscode-descriptionForeground); cursor: pointer; font-family: inherit; font-size: 0.9em;">Antigravity</button>
                     <button type="button" class="mcp-tab-btn" data-provider="claude" style="padding: 6px 12px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--vscode-descriptionForeground); cursor: pointer; font-family: inherit; font-size: 0.9em;">Claude Desktop</button>
-                    <button type="button" class="mcp-tab-btn" data-provider="codex" style="padding: 6px 12px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--vscode-descriptionForeground); cursor: pointer; font-family: inherit; font-size: 0.9em;">Codex & SSE</button>
+                    <button type="button" class="mcp-tab-btn" data-provider="external" style="padding: 6px 12px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--vscode-descriptionForeground); cursor: pointer; font-family: inherit; font-size: 0.9em;">External CLI</button>
                   </div>
 
                   <!-- Guide Content Panels -->
                   <div class="mcp-guide-panels">
                     <div class="mcp-guide-panel" id="mcp-guide-cursor">
-                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">Add this MCP Server configuration to your Cursor settings (<strong>Settings > Features > MCP</strong>):</p>
+                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">With MCP enabled above, Cursor can use VS Code's MCP registry automatically. For a standalone Cursor config, run <code>nexql-mcp init cursor</code> and paste the generated block.</p>
                       <pre style="margin: 0; padding: 12px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; overflow-x: auto; border: 1px solid var(--vscode-widget-border);"><code id="mcpCodeCursor">-</code></pre>
                     </div>
 
                     <div class="mcp-guide-panel" id="mcp-guide-copilot" hidden>
-                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">GitHub Copilot integrates natively with VS Code's internal MCP Server registry. No configuration is required. Simply check <strong>Enable MCP Server</strong> above, and Copilot Chat will automatically discover and use NexQL's read-only DB tools context!</p>
-                    </div>
-
-                    <div class="mcp-guide-panel" id="mcp-guide-antigravity" hidden>
-                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">For Google Antigravity or standard agent configurations, connect using standard SSE with the token header:</p>
-                      <pre style="margin: 0; padding: 12px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; overflow-x: auto; border: 1px solid var(--vscode-widget-border);"><code id="mcpCodeAntigravity">-</code></pre>
+                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">GitHub Copilot integrates natively with VS Code's MCP registry. Enable MCP above — Copilot Chat discovers NexQL via stdio spawn (no URL or bearer token).</p>
                     </div>
 
                     <div class="mcp-guide-panel" id="mcp-guide-claude" hidden>
-                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">Add this configuration to your Claude Desktop config file (<code>claude_desktop_config.json</code>):</p>
+                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">For Claude Desktop outside VS Code, run <code>nexql-mcp init claude-desktop</code> and merge the JSON into <code>claude_desktop_config.json</code>.</p>
                       <pre style="margin: 0; padding: 12px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; overflow-x: auto; border: 1px solid var(--vscode-widget-border);"><code id="mcpCodeClaude">-</code></pre>
                     </div>
 
-                    <div class="mcp-guide-panel" id="mcp-guide-codex" hidden>
-                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">For other MCP clients supporting SSE (Server-Sent Events), use the connection endpoints below:</p>
-                      <table style="width: 100%; border-collapse: collapse; font-size: 0.9em; text-align: left;">
-                        <tbody>
-                          <tr style="border-bottom: 1px solid var(--vscode-widget-border);">
-                            <th style="padding: 8px 0; color: var(--vscode-descriptionForeground); font-weight: 500; width: 140px;">SSE Endpoint</th>
-                            <td style="padding: 8px 0; font-family: var(--vscode-editor-font-family, monospace);" id="mcpSseUrlGeneric">-</td>
-                          </tr>
-                          <tr style="border-bottom: 1px solid var(--vscode-widget-border);">
-                            <th style="padding: 8px 0; color: var(--vscode-descriptionForeground); font-weight: 500;">Auth Header</th>
-                            <td style="padding: 8px 0; font-family: var(--vscode-editor-font-family, monospace);" id="mcpAuthHeaderGeneric">-</td>
-                          </tr>
-                          <tr>
-                            <th style="padding: 8px 0; color: var(--vscode-descriptionForeground); font-weight: 500;">Protocol Version</th>
-                            <td style="padding: 8px 0; font-family: var(--vscode-editor-font-family, monospace);">2025-03-26</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                    <div class="mcp-guide-panel" id="mcp-guide-external" hidden>
+                      <p style="font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-bottom: 8px;">External agents should spawn the binary directly (not the old HTTP SSE endpoint):</p>
+                      <pre style="margin: 0; padding: 12px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; overflow-x: auto; border: 1px solid var(--vscode-widget-border);"><code id="mcpCodeExternal">nexql-mcp init &lt;client&gt;
+# or: nexql-mcp --stdio postgres://…</code></pre>
                     </div>
                   </div>
                 </div>

@@ -49,6 +49,8 @@ const EVENT_SCHEMA: Record<string, { kind: TelemetryEventKind; allowedProps: Set
   agentic_loop_started: { kind: 'usage', allowedProps: new Set(['provider', 'database']) },
   agentic_pseudo_tool_call_recovered: { kind: 'usage', allowedProps: new Set(['provider', 'count']) },
   agentic_loop_completed: { kind: 'usage', allowedProps: new Set(['provider', 'turns', 'database', 'success']) },
+  mcp_server_ready: { kind: 'usage', allowedProps: new Set(['binarySource', 'connectionCountBucket', 'version']) },
+  mcp_server_resolved: { kind: 'usage', allowedProps: new Set(['binarySource', 'connectionCountBucket', 'version']) },
 };
 
 interface TelemetryEnvelope {
@@ -617,4 +619,6 @@ export const SpanNames = {
   TREE_REFRESH: 'tree.refresh',
   NOTEBOOK_EXECUTE: 'notebook.execute',
   EXPORT_DATA: 'export.data',
+  MCP_RESOLVE_BINARY: 'mcp.resolve_binary',
+  MCP_WRITE_PROFILE: 'mcp.write_profile',
 } as const;

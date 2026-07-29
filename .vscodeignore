@@ -20,6 +20,9 @@
 !LICENSE
 !package.json
 
+# Vendored nexql-mcp platform binaries (pro MCP stdio spawn)
+!bin/nexql-mcp/**
+
 # Runtime dependencies kept external to the esbuild bundle
 !node_modules/pg/**
 !node_modules/pg-types/**

@@ -27,13 +27,29 @@ export interface IChatViewProvider {
 }
 
 /**
- * Minimal interface for the MCP server that core settings UI may call.
- * The concrete NexqlMcpServer class lives in packages/pro/src.
+ * Minimal interface for the MCP host that core settings UI may call.
+ * Concrete impl: `NexqlMcpStdioHost` in packages/pro (stdio spawn of nexql-mcp).
  */
+export interface McpServerStatus {
+  mode: 'stdio' | 'http';
+  ready: boolean;
+  /** Absolute path to the nexql-mcp binary (stdio). */
+  binaryPath: string;
+  /** Ephemeral config.toml path (stdio). */
+  configPath?: string;
+  binarySource?: string;
+  version?: string;
+  /** Legacy HTTP fields — unused after Phase 7 stdio cutover. */
+  port?: number;
+  token?: string;
+  /** Connections omitted from the ephemeral profile (e.g. SSH-tunneled). */
+  skippedConnections?: string[];
+}
+
 export interface IMcpServer {
-  start(): Promise<{ port: number; token: string }>;
-  restart(): Promise<void>;
-  readonly info: { port: number; token: string } | undefined;
+  start(): Promise<McpServerStatus>;
+  restart(): Promise<McpServerStatus>;
+  readonly info: McpServerStatus | undefined;
   getInstance?(): IMcpServer | undefined;
 }
 
