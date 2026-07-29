@@ -7,6 +7,17 @@ Quick links:
 
 ---
 
+## [2.2.3] - 2026-07-29
+
+### 🔌 MCP Server — stdio Cutover
+
+- **Bundled Binary Spawn** — The MCP integration now registers a VS Code stdio definition that spawns the standalone `nexql-mcp` binary instead of exposing a local HTTP endpoint.
+- **Binary Path Override** — `postgresExplorer.mcp.binaryPath` can override the resolved binary for debugging or custom packaging, and the Preferences panel shows the resolved path/source.
+- **SSH Connections Skipped** — SSH-tunneled connections are omitted from the ephemeral MCP profile and named in the Preferences panel rather than failing opaquely.
+- **TLS Profile Support** — Ephemeral profiles now emit `sslmode`, `sslcert`, `sslkey`, and `sslrootcert` for managed Postgres (Neon, Supabase, RDS).
+
+---
+
 ## [2.2.2] - 2026-07-17
 > Nightly releases -  v2.3.1 • v2.3.2
 
@@ -22,10 +33,10 @@ Quick links:
 - **Actionable Sign-In Banner** — A dismissible banner appears in the SQL Assistant when the free model is selected and you're not signed in, with **Sign in** and **Choose provider** actions.
 - **Clearer Auth Errors** — Failed NexQL Free AI requests due to a missing/expired session now surface a specific "sign in or switch provider" message instead of a generic failure.
 
-### 🔌 MCP Server — stdio Cutover
+### 🔌 MCP Server — Fixed Port & Token
 
-- **Bundled Binary Spawn** — The MCP integration now registers a VS Code stdio definition that spawns the standalone `nexql-mcp` binary instead of exposing a local HTTP endpoint.
-- **Binary Path Override** — `postgresExplorer.mcp.binaryPath` can override the resolved binary for debugging or custom packaging, and the Preferences panel shows the resolved path/source.
+- **Persistent Bearer Token** — The MCP server's auth token is now stored in VS Code `SecretStorage` and reused across extension host restarts, instead of regenerating randomly every launch.
+- **Configurable Fixed Port** — New `postgresExplorer.mcp.port` setting (also exposed as a **Fixed port** field in **NexQL Settings → Preferences**) lets external clients (Cursor, Antigravity, Codex, etc.) hard-code the MCP endpoint. `0` (default) keeps the previous random-port behavior. Changing the port from the Preferences panel restarts the running server immediately — no window reload needed.
 
 ### 🗄️ Database Indexing Enhancements & Redesign
 
