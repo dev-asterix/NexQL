@@ -305,7 +305,7 @@ export function renderAnalystPanel(props: AnalystPanelProps): HTMLElement {
           aiBtn.type = 'button';
           aiBtn.textContent = 'Ask AI to optimize query';
           aiBtn.title =
-            'Open SQL Assistant with this query, sample rows, and your pivot fields';
+            'Open NexQL Bot with this query, sample rows, and your pivot fields';
           aiBtn.style.cssText =
             'padding:3px 10px;font-size:11px;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:1px solid var(--vscode-contrastBorder, transparent);border-radius:3px;';
           aiBtn.onclick = () =>

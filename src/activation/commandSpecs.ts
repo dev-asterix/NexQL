@@ -395,15 +395,42 @@ export function getCommandSpecs(
       }
     },
     {
-      command: 'postgres-explorer.openSqlAssistantTab',
+      command: 'nexql.bot.openTab',
       callback: async () => {
         const chatViewProviderInstance = getChatViewProvider() as any;
         if (!chatViewProviderInstance) {
-          vscode.window.showWarningMessage('SQL Assistant is not available');
+          vscode.window.showWarningMessage('NexQL Bot is not available');
           return;
         }
 
         await chatViewProviderInstance.openInEditor(vscode.ViewColumn.Beside);
+      }
+    },
+    {
+      command: 'postgres-explorer.openSqlAssistantTab',
+      callback: async () => {
+        const chatViewProviderInstance = getChatViewProvider() as any;
+        if (!chatViewProviderInstance) {
+          vscode.window.showWarningMessage('NexQL Bot is not available');
+          return;
+        }
+
+        await chatViewProviderInstance.openInEditor(vscode.ViewColumn.Beside);
+      }
+    },
+    {
+      command: 'nexql.bot.revealObject',
+      callback: async (connectionId?: string, databaseName?: string, schema?: string, objectName?: string) => {
+        let connId = connectionId;
+        if (!connId) {
+          const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
+          if (connections.length > 0) {
+            connId = connections[0].id;
+          }
+        }
+        if (connId) {
+          await databaseTreeProvider.revealItem(connId, databaseName, schema, objectName);
+        }
       }
     },
     {

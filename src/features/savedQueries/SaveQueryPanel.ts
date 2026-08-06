@@ -190,7 +190,7 @@ export class SaveQueryPanel {
       if (!aiService) {
         this._panel.webview.postMessage({
           command: 'aiError',
-          message: 'AI Assistant is premium-only or not initialized. Please active NexQL Pro or fill the fields manually.'
+          message: 'NexQL Bot is premium-only or not initialized. Please activate NexQL Pro or fill the fields manually.'
         });
         return;
       }

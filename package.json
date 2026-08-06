@@ -248,10 +248,21 @@
         "category": "NexQL"
       },
       {
-        "command": "postgres-explorer.openSqlAssistantTab",
-        "title": "SQL Assistant: Open in Editor Tab",
+        "command": "nexql.bot.openTab",
+        "title": "NexQL Bot: Open in Editor Tab",
         "category": "NexQL",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "nexql.bot.revealObject",
+        "title": "NexQL Bot: Reveal Object in Explorer",
+        "category": "NexQL"
+      },
+      {
+        "command": "postgres-explorer.openSqlAssistantTab",
+        "title": "SQL Assistant: Open in Editor Tab (Deprecated)",
+        "category": "NexQL",
+        "enablement": "false"
       },
       {
         "command": "postgres-explorer.connect",
@@ -1868,7 +1879,7 @@
         "postgresExplorer.sentinel.chatEnvChip": {
           "type": "boolean",
           "default": true,
-          "description": "Show environment chip in the SQL Assistant context bar."
+          "description": "Show environment chip in the NexQL Bot context bar."
         },
         "postgresExplorer.sentinel.notifyOnTransition": {
           "type": "boolean",
@@ -1915,7 +1926,7 @@
             "custom"
           ],
           "default": "nexql-free",
-          "description": "AI provider for the SQL Assistant chat panel"
+          "description": "AI provider for the NexQL Bot chat panel"
         },
         "postgresExplorer.ai.chat.model": {
           "type": "string",
@@ -1968,7 +1979,7 @@
         "postgresExplorer.opencodeAutoServe": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically start and reuse a local opencode serve instance for faster SQL Assistant requests."
+          "description": "Automatically start and reuse a local opencode serve instance for faster NexQL Bot requests."
         },
         "postgresExplorer.opencodeShowLog": {
           "type": "boolean",
@@ -1985,12 +1996,12 @@
         "postgresExplorer.opencodeSkipPermissions": {
           "type": "boolean",
           "default": true,
-          "description": "Auto-allow OpenCode tool permissions for headless SQL Assistant runs (YOLO mode). Required when attaching to opencode serve."
+          "description": "Auto-allow OpenCode tool permissions for headless NexQL Bot runs (YOLO mode). Required when attaching to opencode serve."
         },
         "postgresExplorer.opencodeAutoApprovePermissions": {
           "type": "boolean",
           "default": true,
-          "description": "Poll the OpenCode server and auto-approve any permission prompts during SQL Assistant requests."
+          "description": "Poll the OpenCode server and auto-approve any permission prompts during NexQL Bot requests."
         },
         "postgresExplorer.opencodePreferSdk": {
           "type": "boolean",
@@ -2324,7 +2335,7 @@
           "group": "2_phase7"
         },
         {
-          "command": "postgres-explorer.openSqlAssistantTab",
+          "command": "nexql.bot.openTab",
           "when": "view == postgresExplorer.chatView",
           "group": "navigation"
         }
@@ -3588,12 +3599,13 @@
     "onCommand:postgres-explorer.exportNotebook",
     "onCommand:postgres-explorer.openListenNotify",
     "onCommand:postgres-explorer.openListenNotifyFromPalette",
-    "onCommand:postgres-explorer.openSqlAssistantTab"
+    "onCommand:nexql.bot.openTab",
+    "onCommand:nexql.bot.revealObject"
   ],
   "main": "./dist/extension.js",
   "scripts": {
-    "vscode:prepublish": "npm run esbuild-base:free -- --minify && npm run esbuild-renderer:free -- --minify && npm run esbuild-erd-webview:free -- --minify",
-    "vscode:prepublish:pro": "npm run esbuild-base:pro -- --minify && npm run esbuild-renderer:pro -- --minify && npm run esbuild-erd-webview:pro -- --minify",
+    "vscode:prepublish": "npm run esbuild-base:free -- --minify && npm run esbuild-renderer:free -- --minify && npm run esbuild-erd-webview:free -- --minify && npm run esbuild-chat-chart -- --minify",
+    "vscode:prepublish:pro": "npm run esbuild-base:pro -- --minify && npm run esbuild-renderer:pro -- --minify && npm run esbuild-erd-webview:pro -- --minify && npm run esbuild-chat-chart -- --minify",
     "prepare:nightly:manifests": "node ./scripts/prepare-nightly-manifests.js",
     "package:prerelease": "npx @vscode/vsce package --pre-release",
     "package:openvsx:nightly": "npx @vscode/vsce package",
@@ -3603,15 +3615,16 @@
     "esbuild-renderer:pro": "node scripts/clean-dist-chunks.js && esbuild ./src/ui/renderer/renderer_v2.ts --bundle --preserve-symlinks --outdir=dist --format=esm --platform=browser --splitting --alias:@nexql/pro-renderer=./packages/pro/renderer --tsconfig=tsconfig.pro.json --define:__NEXQL_PRO__=true",
     "esbuild-erd-webview": "npm run esbuild-erd-webview:free",
     "esbuild-erd-webview:free": "esbuild ./src/pro/erd-webview-stub.ts --bundle --outfile=dist/erd-webview.js --format=iife --platform=browser",
+    "esbuild-chat-chart": "esbuild ./src/ui/chat-chart/chatChart.ts --bundle --outfile=dist/chat-chart.js --format=iife --platform=browser",
     "build:vscode-stub": "esbuild src/test/unit/mocks/vscode.ts --bundle --platform=node --format=cjs --outfile=src/test/vscode-stub/index.js",
     "esbuild-erd-webview:pro": "esbuild ./packages/pro/src/schemaDesigner/erd/webview/main.ts --bundle --preserve-symlinks --outfile=dist/erd-webview.js --format=iife --platform=browser",
     "copy-templates": "cp -r templates dist/",
-    "compile": "tsc -p ./ && npm run esbuild-renderer:free && npm run esbuild-erd-webview && npm run copy-templates",
+    "compile": "tsc -p ./ && npm run esbuild-renderer:free && npm run esbuild-erd-webview && npm run esbuild-chat-chart && npm run copy-templates",
     "watch": "tsc -watch -p ./",
     "esbuild": "npm run esbuild:free",
-    "esbuild:free": "npm run esbuild-base:free -- --sourcemap && npm run esbuild-renderer:free -- --sourcemap && npm run esbuild-erd-webview:free -- --sourcemap",
-    "esbuild:pro": "npm run esbuild-base:pro -- --sourcemap && npm run esbuild-renderer:pro -- --sourcemap && npm run esbuild-erd-webview:pro -- --sourcemap",
-    "esbuild-watch": "npm run esbuild-base:free -- --sourcemap --watch & npm run esbuild-renderer:free -- --sourcemap --watch & npm run esbuild-erd-webview:free -- --sourcemap --watch",
+    "esbuild:free": "npm run esbuild-base:free -- --sourcemap && npm run esbuild-renderer:free -- --sourcemap && npm run esbuild-erd-webview:free -- --sourcemap && npm run esbuild-chat-chart -- --sourcemap",
+    "esbuild:pro": "npm run esbuild-base:pro -- --sourcemap && npm run esbuild-renderer:pro -- --sourcemap && npm run esbuild-erd-webview:pro -- --sourcemap && npm run esbuild-chat-chart -- --sourcemap",
+    "esbuild-watch": "npm run esbuild-base:free -- --sourcemap --watch & npm run esbuild-renderer:free -- --sourcemap --watch & npm run esbuild-erd-webview:free -- --sourcemap --watch & npm run esbuild-chat-chart -- --sourcemap --watch",
     "test": "npm run compile && node --no-experimental-strip-types ./node_modules/mocha/bin/mocha --loader ./node_modules/ts-node/esm/transpile-only.mjs -r tsconfig-paths/register -r src/test/setup.ts 'src/test/unit/**/*.test.ts'",
     "test:unit": "npm run compile && TS_NODE_PROJECT=src/test/tsconfig.json node --no-experimental-strip-types -r ts-node/register/transpile-only -r tsconfig-paths/register -r ./src/test/setup.ts ./node_modules/mocha/bin/mocha --exit 'src/test/unit/**/*.test.ts'",
     "test:unit:pro": "if [ -d packages/pro/test ]; then TS_NODE_PROJECT=src/test/tsconfig.json node --preserve-symlinks --preserve-symlinks-main --no-experimental-strip-types -r ts-node/register/transpile-only -r tsconfig-paths/register -r ./src/test/setup.ts ./node_modules/mocha/bin/mocha --exit 'packages/pro/test/**/*.test.ts'; else echo 'packages/pro absent — skipping pro tests'; fi",

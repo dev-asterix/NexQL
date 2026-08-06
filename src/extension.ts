@@ -445,7 +445,7 @@ export async function activate(context: vscode.ExtensionContext) {
             if (!provider) {
               webviewView.webview.options = { enableScripts: false };
               webviewView.webview.html =
-                '<html><body><p>SQL Assistant failed to load. Check the NexQL output channel for details.</p></body></html>';
+                '<html><body><p>NexQL Bot failed to load. Check the NexQL output channel for details.</p></body></html>';
               return;
             }
             await provider.resolveWebviewView(webviewView, viewContext, token);

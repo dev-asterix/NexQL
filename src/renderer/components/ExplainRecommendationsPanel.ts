@@ -81,7 +81,7 @@ export class ExplainRecommendationsPanel {
     if (options?.onSendToAssistant) {
       const button = document.createElement('button');
       button.type = 'button';
-      button.textContent = 'Send to SQL Assistant';
+      button.textContent = 'Send to NexQL Bot';
       button.style.cssText = `
         padding: 6px 10px;
         border-radius: 8px;

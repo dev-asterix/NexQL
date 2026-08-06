@@ -97,7 +97,7 @@ export class QueryCodeLensProvider implements vscode.CodeLensProvider {
     codeLenses.push(
       new vscode.CodeLens(range, {
         title: '$(comment) Chat',
-        tooltip: 'Open SQL Assistant chat with this query',
+        tooltip: 'Open NexQL Bot chat with this query',
         command: 'postgres-explorer.chatWithQuery',
         arguments: [],
       }),

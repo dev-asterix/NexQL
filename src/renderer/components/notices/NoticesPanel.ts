@@ -183,7 +183,7 @@ export function renderNoticesPanel(
   const copyDefaultLabel = '⎘ Copy';
 
   const aiBtn = createButton('✦ Ask AI', true, 'ai');
-  aiBtn.title = 'Attach query and notices to SQL Assistant';
+  aiBtn.title = 'Attach query and notices to NexQL Bot';
   if (!options?.onAskAssistant) {
     aiBtn.style.display = 'none';
   }
@@ -240,7 +240,7 @@ export function renderNoticesPanel(
     const canAskAi = Boolean(options?.onAskAssistant && messages.length > 0);
     (aiBtn as HTMLButtonElement).disabled = !canAskAi;
     aiBtn.title = canAskAi
-      ? 'Attach query and notices to SQL Assistant'
+      ? 'Attach query and notices to NexQL Bot'
       : 'No notices to send';
 
     countBadge.textContent =

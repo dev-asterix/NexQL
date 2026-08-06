@@ -71,7 +71,7 @@ export class AssistantGateway {
   async invoke(inv: AssistantInvocation): Promise<void> {
     const provider = this._provider;
     if (!provider) {
-      throw new Error('SQL Assistant is not available yet — no chat provider registered.');
+      throw new Error('NexQL Bot is not available yet — no chat provider registered.');
     }
 
     if (inv.connection && (inv.connection.connectionId || inv.connection.database)) {
@@ -80,7 +80,7 @@ export class AssistantGateway {
 
     const webview = await provider.resolveOrRevealSurface();
     if (!webview) {
-      void vscode.window.showWarningMessage('Could not open SQL Assistant.');
+      void vscode.window.showWarningMessage('Could not open NexQL Bot.');
       return;
     }
 
