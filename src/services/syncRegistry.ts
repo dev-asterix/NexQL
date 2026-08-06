@@ -61,6 +61,8 @@ export interface ISyncIndexHandle {
 
 export interface IAiUsageBackend {
   fetchUsage(context: import('vscode').ExtensionContext): Promise<any | null>;
+  /** True when a NexQL AI session token exists — used to skip background usage fetches for unsigned users. */
+  isSignedIn(context: import('vscode').ExtensionContext): Promise<boolean>;
 }
 
 export type ISyncBootstrapHook = (context: import('vscode').ExtensionContext) => void | Promise<void>;

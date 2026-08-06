@@ -16,6 +16,10 @@ Quick links:
 - **SSH Connections Skipped** — SSH-tunneled connections are omitted from the ephemeral MCP profile and named in the Preferences panel rather than failing opaquely.
 - **TLS Profile Support** — Ephemeral profiles now emit `sslmode`, `sslcert`, `sslkey`, and `sslrootcert` for managed Postgres (Neon, Supabase, RDS).
 
+### Fixed
+
+- **Repeated GitHub sign-in prompt on focus (Fixes #132)** — Status-bar usage refresh no longer schedules auth work for unsigned users; GitHub model catalog probes only when the GitHub provider is active; all GitHub session access goes through a single silent-by-default helper.
+
 ---
 
 ## [2.2.2] - 2026-07-17

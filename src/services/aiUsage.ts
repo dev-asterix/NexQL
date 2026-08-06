@@ -81,8 +81,40 @@ export async function fetchAiUsage(context: vscode.ExtensionContext): Promise<Ai
 /**
  * Throttled fire-and-forget refresh for synchronous callers (status bar tooltip).
  * Invokes `onUpdate` only when a fetch actually lands, so the caller can re-render.
+ * Never schedules auth/session work for unsigned users with no cached usage.
  */
 export function refreshAiUsageInBackground(
+  context: vscode.ExtensionContext,
+  onUpdate?: (usage: AiUsage) => void,
+): void {
+  if (inFlight || Date.now() - lastFetch < MIN_REFRESH_MS) {
+    return;
+  }
+  if (cached) {
+    startBackgroundFetch(context, onUpdate);
+    return;
+  }
+  void shouldRefreshAiUsage(context).then((ok) => {
+    if (ok) {
+      startBackgroundFetch(context, onUpdate);
+    }
+  });
+}
+
+async function shouldRefreshAiUsage(context: vscode.ExtensionContext): Promise<boolean> {
+  try {
+    const { getAiUsageBackend } = await import('./syncRegistry');
+    const backend = getAiUsageBackend();
+    if (!backend?.isSignedIn) {
+      return false;
+    }
+    return backend.isSignedIn(context);
+  } catch {
+    return false;
+  }
+}
+
+function startBackgroundFetch(
   context: vscode.ExtensionContext,
   onUpdate?: (usage: AiUsage) => void,
 ): void {
