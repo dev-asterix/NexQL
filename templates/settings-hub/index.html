@@ -816,9 +816,27 @@
                 <strong>MCP restart required</strong> — connection or binary settings changed. Disable and re-enable MCP, or reload the window.
               </div>
 
+              <!-- Shown when the binary can't be resolved: guided install, no reload needed. -->
+              <div id="mcpInstallHelp" hidden style="margin-top: 12px; padding: 12px; border-radius: 6px; border: 1px solid var(--vscode-widget-border); background: color-mix(in srgb, var(--pg-ui-surface) 40%, transparent);">
+                <strong style="display: block; margin-bottom: 4px;">Install nexql-mcp</strong>
+                <p style="font-size: 0.85em; color: var(--vscode-descriptionForeground); margin: 0 0 10px;">Binary not found on PATH. Install once, then hit Detect — no window reload needed.</p>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                  <button type="button" id="mcpInstallNpmBtn" class="btn-primary" data-method="npm">Install via npm (Terminal)</button>
+                  <button type="button" id="mcpInstallCargoBtn" class="btn-secondary" data-method="cargo">Install via cargo (Terminal)</button>
+                  <button type="button" id="mcpDetectBtn" class="btn-secondary">Detect</button>
+                </div>
+                <details style="font-size: 0.85em; margin-top: 10px;">
+                  <summary style="cursor: pointer; color: var(--vscode-descriptionForeground);">Other install methods</summary>
+                  <pre style="margin: 8px 0 0; padding: 12px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; overflow-x: auto; border: 1px solid var(--vscode-widget-border);"><code># one-off, no install
+npx -y nexql-mcp postgres://dev@localhost:5432/appdb
+
+# or pin the printed path in "Binary path" below after either install</code></pre>
+                </details>
+              </div>
+
               <label class="hub-card-checkbox-row" style="margin-top: 8px; gap: 8px; align-items: center;">
                 <span style="min-width: fit-content;">Binary path</span>
-                <input type="text" id="prefMcpBinaryPath" placeholder="auto (bundled / PATH)" style="flex:1; min-width: 180px" class="num-input">
+                <input type="text" id="prefMcpBinaryPath" placeholder="auto (PATH)" style="flex:1; min-width: 180px" class="num-input">
               </label>
 
               <!-- Connection details and setup instructions -->

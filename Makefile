@@ -90,19 +90,9 @@ vendor-nexql-mcp:
 # Package the pro version
 package-pro:
 	@echo "Merging pro manifest, building, and packaging pro VSIX..."
-	@if [ "$(REQUIRE_MCP_BIN)" = "1" ]; then \
-	  if ! find bin/nexql-mcp -type f \( -name 'nexql-mcp' -o -name 'nexql-mcp.exe' \) -print -quit | grep -q .; then \
-	    echo "ERROR: REQUIRE_MCP_BIN=1 but no vendored nexql-mcp binary under bin/nexql-mcp/" >&2; \
-	    exit 1; \
-	  fi; \
-	fi
-	@if [ -x ../mcp/scripts/vendor-nexql-mcp.sh ]; then \
-	  if [ -x ../mcp/target/release/nexql-mcp ] || [ -x ../mcp/target/debug/nexql-mcp ] || [ -n "$(SRC)" ]; then \
-	    $(MAKE) vendor-nexql-mcp SRC="$(SRC)"; \
-	  elif [ "$(REQUIRE_MCP_BIN)" != "1" ]; then \
-	    echo "NOTE: nexql-mcp binary not found — packaging without vendored MCP (set SRC= or cargo build -p nexql-mcp)"; \
-	  fi; \
-	fi
+	@# nexql-mcp is no longer vendored into the VSIX — users install it themselves
+	@# (npm/cargo/curl) and the Settings > MCP panel guides them through it.
+	@# `make vendor-nexql-mcp` still exists for local dev if you want a bundled copy.
 	@cp package.json package.json.bak
 	@trap 'if [ -f package.json.bak ]; then mv package.json.bak package.json; fi; (cd packages/pro/templates && find . -type f) | while read -r f; do rm -f "templates/$$f"; done; find templates -type d -empty -delete 2>/dev/null || true' EXIT INT TERM; \
 	$(NODE_BIN) ./scripts/merge-pro-manifest.js; \

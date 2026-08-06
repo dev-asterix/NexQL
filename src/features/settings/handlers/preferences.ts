@@ -1,6 +1,12 @@
 import * as vscode from 'vscode';
 import type { SettingsHubHostContext, SettingsHubMessage, SettingsSectionHandler } from '../types';
 import type { IMcpServer } from '../../../pro/api';
+import { refreshProcessPathFromShell } from './pathRefresh';
+
+const MCP_INSTALL_COMMANDS: Record<string, string> = {
+  npm: 'npm install -g nexql-mcp',
+  cargo: 'cargo install nexql-mcp',
+};
 
 const DDL_ENABLED_KEY = 'nexql.ddlViewer.enabled';
 const DDL_OPEN_ON_SELECTION_KEY = 'nexql.ddlViewer.openOnSelection';
@@ -35,7 +41,50 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
       case 'update':
         await this.update(String(message.key), message.value as boolean | number | string);
         break;
+      case 'mcpOpenInstallTerminal':
+        this.openInstallTerminal(String(message.method));
+        break;
+      case 'mcpDetect':
+        await this.detectMcpBinary();
+        break;
     }
+  }
+
+  private openInstallTerminal(method: string): void {
+    const cmd = MCP_INSTALL_COMMANDS[method];
+    if (!cmd) {
+      this.host.post({ type: 'prefs/error', error: `Unknown install method: ${method}` });
+      return;
+    }
+    const terminal = vscode.window.createTerminal('NexQL MCP Install');
+    terminal.show();
+    terminal.sendText(cmd);
+  }
+
+  /**
+   * Re-probe PATH (via a fresh shell) and re-resolve the binary without
+   * requiring a full window reload — covers the case where the user just
+   * ran a global install in the terminal above.
+   */
+  private async detectMcpBinary(): Promise<void> {
+    this.host.post({ type: 'prefs/mcpDetecting' });
+    try {
+      await refreshProcessPathFromShell();
+    } catch {
+      // Best-effort — fall through to resolve with whatever PATH we have.
+    }
+    const server = getMcpServerFromApi();
+    if (server) {
+      try {
+        await server.restart();
+      } catch (err) {
+        this.host.post({
+          type: 'prefs/error',
+          error: `Failed to resolve nexql-mcp: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
+    await this.sendState();
   }
 
   private async sendState(): Promise<void> {
@@ -94,6 +143,7 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         mcpRestartRequired,
         mcpGeneration,
         mcpToolProfile: config.get<string>('postgresExplorer.mcp.toolProfile', 'meta'),
+        mcpOsPlatform: process.platform,
         // Legacy keys kept so older webview bundles don't throw.
         mcpPort: 0,
         mcpConfiguredPort: 0,

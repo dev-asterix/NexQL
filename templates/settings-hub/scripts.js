@@ -2438,6 +2438,16 @@ function handlePrefsMessage(message) {
           $('mcpStatusText').textContent = message.prefs.mcpError || 'Binary not resolved';
           $('mcpStatusText').style.color = 'var(--danger)';
         }
+        const installHelp = $('mcpInstallHelp');
+        if (installHelp) {
+          installHelp.hidden = !!message.prefs.mcpStarted;
+        }
+        applyMcpInstallButtonOrder(message.prefs.mcpOsPlatform);
+        const detectBtn = $('mcpDetectBtn');
+        if (detectBtn) {
+          detectBtn.disabled = false;
+          detectBtn.textContent = 'Detect';
+        }
         const restartBanner = $('mcpRestartRequired');
         if (restartBanner) {
           restartBanner.hidden = !message.prefs.mcpRestartRequired;
@@ -2483,7 +2493,58 @@ function handlePrefsMessage(message) {
       $('prefsState').classList.add('error');
       $('prefsState').textContent = message.error || 'Failed to update preference';
       break;
+    case 'prefs/mcpDetecting': {
+      const btn = $('mcpDetectBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Detecting…';
+      }
+      break;
+    }
   }
+}
+
+// cargo never needs sudo (installs to ~/.cargo/bin); npm -g does on distro/
+// system Node installs where the global prefix is root-owned (not on
+// nvm/Homebrew Node). Lead with cargo on macOS/Linux, npm on Windows (where
+// npm ships a .cmd shim and is the more common install path).
+function applyMcpInstallButtonOrder(osPlatform) {
+  const npmBtn = $('mcpInstallNpmBtn');
+  const cargoBtn = $('mcpInstallCargoBtn');
+  const container = npmBtn && npmBtn.parentElement;
+  if (!npmBtn || !cargoBtn || !container) return;
+
+  const order = osPlatform === 'win32' ? 'npm' : 'cargo';
+  if (container.dataset.mcpOrder === order) return; // already arranged
+  container.dataset.mcpOrder = order;
+
+  if (order === 'npm') {
+    container.insertBefore(npmBtn, cargoBtn);
+    npmBtn.className = 'btn-primary';
+    cargoBtn.className = 'btn-secondary';
+    npmBtn.title = '';
+  } else {
+    container.insertBefore(cargoBtn, npmBtn);
+    cargoBtn.className = 'btn-primary';
+    npmBtn.className = 'btn-secondary';
+    npmBtn.title = 'May require sudo if Node was installed via a system package manager (apt, etc). nvm/Homebrew Node installs do not.';
+  }
+}
+
+// MCP install buttons — open a terminal with the install command, or
+// re-probe PATH + re-resolve the binary in-session (no reload).
+['mcpInstallNpmBtn', 'mcpInstallCargoBtn'].forEach((id) => {
+  const btn = $(id);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    vscode.postMessage({ command: 'prefs/mcpOpenInstallTerminal', method: btn.getAttribute('data-method') });
+  });
+});
+const mcpDetectBtnEl = $('mcpDetectBtn');
+if (mcpDetectBtnEl) {
+  mcpDetectBtnEl.addEventListener('click', () => {
+    vscode.postMessage({ command: 'prefs/mcpDetect' });
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
