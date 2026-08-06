@@ -776,6 +776,22 @@
           <div class="hub-setting-card">
             <div class="hub-setting-card-header">
               <div>
+                <h2 class="hub-setting-card-title">SQL Assistant Agentic Loop</h2>
+                <p class="hub-setting-card-desc hub-prose">Maximum tool-loop steps per agentic run before pausing with a continue prompt. Longer exploratory tasks need a higher limit.</p>
+              </div>
+            </div>
+            <div class="hub-setting-card-body">
+              <label class="hub-card-checkbox-row" style="gap:12px">
+                <span style="white-space:nowrap">Step limit</span>
+                <input type="number" id="prefAgenticMaxSteps" min="0" max="100" style="max-width:100px" class="num-input">
+                <span style="opacity:0.6;font-size:0.85em">steps (0 = no limit, max 100)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="hub-setting-card">
+            <div class="hub-setting-card-header">
+              <div>
                 <h2 class="hub-setting-card-title">Model Context Protocol (MCP) <span class="hub-badge" style="margin-left: 8px; vertical-align: middle; background: color-mix(in srgb, var(--vscode-charts-orange, #e57373) 14%, transparent); color: var(--vscode-charts-orange, #e57373);">BETA</span></h2>
                 <p class="hub-setting-card-desc hub-prose">Spawn the standalone <code>nexql-mcp</code> binary over stdio so Copilot and other MCP clients can use NexQL's schema-aware tools. Shares the same on-disk database index as the in-chat assistant.</p>
               </div>
