@@ -783,8 +783,8 @@
             <div class="hub-setting-card-body">
               <label class="hub-card-checkbox-row" style="gap:12px">
                 <span style="white-space:nowrap">Step limit</span>
-                <input type="number" id="prefAgenticMaxSteps" min="0" max="100" style="max-width:100px" class="num-input">
-                <span style="opacity:0.6;font-size:0.85em">steps (0 = no limit, max 100)</span>
+                <input type="number" id="prefAgenticMaxSteps" min="1" max="100" style="max-width:100px" class="num-input">
+                <span style="opacity:0.6;font-size:0.85em">steps (1 – 100, default 20)</span>
               </label>
             </div>
           </div>
@@ -801,6 +801,20 @@
                 <input type="checkbox" id="prefMcpEnabled">
                 <span>Enable MCP Server</span>
               </label>
+
+              <label class="hub-card-checkbox-row" style="margin-top: 8px; gap: 8px; align-items: center;">
+                <span style="min-width: fit-content;">Agent tool profile</span>
+                <select id="prefMcpToolProfile" class="num-input" style="flex:1; min-width: 140px">
+                  <option value="meta">meta — small core + discover</option>
+                  <option value="query">query — schema + SELECT</option>
+                  <option value="dba">dba — monitoring + tuning</option>
+                  <option value="full">full — all tools</option>
+                </select>
+              </label>
+
+              <div id="mcpRestartRequired" hidden style="margin-top: 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 35%, var(--vscode-widget-border)); background: color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 8%, transparent); font-size: 0.9em;">
+                <strong>MCP restart required</strong> — connection or binary settings changed. Disable and re-enable MCP, or reload the window.
+              </div>
 
               <label class="hub-card-checkbox-row" style="margin-top: 8px; gap: 8px; align-items: center;">
                 <span style="min-width: fit-content;">Binary path</span>

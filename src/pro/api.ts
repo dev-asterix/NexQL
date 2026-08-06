@@ -26,6 +26,13 @@ export interface IChatViewProvider {
   handleOptimizeQuery?(query: string, executionTime: number): void | Promise<void>;
 }
 
+/** Command/args/env bundle for spawning nexql-mcp via stdio. */
+export interface McpLaunchDescriptor {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
 /**
  * Minimal interface for the MCP host that core settings UI may call.
  * Concrete impl: `NexqlMcpStdioHost` in packages/pro (stdio spawn of nexql-mcp).
@@ -44,12 +51,22 @@ export interface McpServerStatus {
   token?: string;
   /** Connections omitted from the ephemeral profile (e.g. SSH-tunneled). */
   skippedConnections?: string[];
+  /** True when profile/binary changed and the MCP client must reconnect. */
+  restartRequired: boolean;
+  /** Monotonic counter bumped on profile/binary regeneration. */
+  generation: number;
 }
 
 export interface IMcpServer {
   start(): Promise<McpServerStatus>;
   restart(): Promise<McpServerStatus>;
+  /** Drop the ephemeral profile and signal that MCP clients must reconnect. */
+  invalidate(): void;
+  getStdioLaunch(options?: { managedExtension?: boolean }): McpLaunchDescriptor;
   readonly info: McpServerStatus | undefined;
+  /** Active workspace connection context reflected in the ephemeral profile. */
+  activeConnectionContext?: { connectionId: string; database?: string };
+  readonly onDidChange?: vscode.Event<void>;
   getInstance?(): IMcpServer | undefined;
 }
 

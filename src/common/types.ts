@@ -36,6 +36,8 @@ export interface ConnectionConfig {
   hidePlatformSchemas?: boolean;
   color?: 'red' | 'orange' | 'blue' | 'green' | 'gray';
   group?: string;
+  /** Per-connection MCP agent access mode (read | write | admin). */
+  agentAccessMode?: 'read' | 'write' | 'admin';
 }
 
 export interface PostgresMetadata {

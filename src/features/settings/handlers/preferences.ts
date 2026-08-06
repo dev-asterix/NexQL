@@ -49,6 +49,8 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
     let version = '';
     let mcpError = '';
     let mcpSkippedConnections: string[] = [];
+    let mcpRestartRequired = false;
+    let mcpGeneration = 0;
 
     const server = getMcpServerFromApi();
     if (server && mcpEnabled) {
@@ -59,6 +61,8 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         binarySource = info.binarySource || '';
         version = info.version || '';
         mcpSkippedConnections = info.skippedConnections ?? [];
+        mcpRestartRequired = !!info.restartRequired;
+        mcpGeneration = info.generation ?? 0;
       } catch (err) {
         mcpError = err instanceof Error ? err.message : String(err);
       }
@@ -68,6 +72,8 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
       binarySource = server.info.binarySource || '';
       version = server.info.version || '';
       mcpSkippedConnections = server.info.skippedConnections ?? [];
+      mcpRestartRequired = !!server.info.restartRequired;
+      mcpGeneration = server.info.generation ?? 0;
     }
 
     this.host.post({
@@ -85,6 +91,9 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         mcpVersion: version,
         mcpError,
         mcpSkippedConnections,
+        mcpRestartRequired,
+        mcpGeneration,
+        mcpToolProfile: config.get<string>('postgresExplorer.mcp.toolProfile', 'meta'),
         // Legacy keys kept so older webview bundles don't throw.
         mcpPort: 0,
         mcpConfiguredPort: 0,
@@ -108,12 +117,17 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
           .update(HISTORY_MAX_ITEMS_KEY, n, vscode.ConfigurationTarget.Global);
       } else if (key === 'agenticMaxSteps') {
         const raw = Number(value);
-        const n = Number.isFinite(raw)
-          ? Math.max(0, Math.min(MAX_AGENTIC_MAX_STEPS, Math.floor(raw)))
+        const n = Number.isFinite(raw) && raw > 0
+          ? Math.max(1, Math.min(MAX_AGENTIC_MAX_STEPS, Math.floor(raw)))
           : DEFAULT_AGENTIC_MAX_STEPS;
         await vscode.workspace
           .getConfiguration()
           .update(AGENTIC_MAX_STEPS_KEY, n, vscode.ConfigurationTarget.Global);
+      } else if (key === 'mcpToolProfile') {
+        const profile = String(value || 'meta');
+        await vscode.workspace
+          .getConfiguration()
+          .update('postgresExplorer.mcp.toolProfile', profile, vscode.ConfigurationTarget.Global);
       } else if (key === 'mcpEnabled') {
         await vscode.workspace
           .getConfiguration()

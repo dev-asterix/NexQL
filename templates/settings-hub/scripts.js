@@ -2351,9 +2351,15 @@ const prefAgenticMaxStepsEl = $('prefAgenticMaxSteps');
 if (prefAgenticMaxStepsEl) {
   prefAgenticMaxStepsEl.addEventListener('change', (e) => {
     const parsed = parseInt(e.target.value, 10);
-    const n = Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 20;
+    const n = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 20;
     e.target.value = n;
     vscode.postMessage({ command: 'prefs/update', key: 'agenticMaxSteps', value: n });
+  });
+}
+const prefMcpToolProfileEl = $('prefMcpToolProfile');
+if (prefMcpToolProfileEl) {
+  prefMcpToolProfileEl.addEventListener('change', (e) => {
+    vscode.postMessage({ command: 'prefs/update', key: 'mcpToolProfile', value: e.target.value });
   });
 }
 $('prefMcpEnabled').addEventListener('change', (e) => {
@@ -2406,6 +2412,10 @@ function handlePrefsMessage(message) {
       if ($('prefAgenticMaxSteps')) {
         $('prefAgenticMaxSteps').value = message.prefs.agenticMaxSteps ?? 20;
       }
+      const toolProfileEl = $('prefMcpToolProfile');
+      if (toolProfileEl) {
+        toolProfileEl.value = message.prefs.mcpToolProfile || 'meta';
+      }
       
       const mcpEnabled = !!message.prefs.mcpEnabled;
       $('prefMcpEnabled').checked = mcpEnabled;
@@ -2427,6 +2437,10 @@ function handlePrefsMessage(message) {
           $('mcpStatusDot').style.background = 'var(--danger)';
           $('mcpStatusText').textContent = message.prefs.mcpError || 'Binary not resolved';
           $('mcpStatusText').style.color = 'var(--danger)';
+        }
+        const restartBanner = $('mcpRestartRequired');
+        if (restartBanner) {
+          restartBanner.hidden = !message.prefs.mcpRestartRequired;
         }
         const resolvedEl = $('mcpBinaryResolved');
         const sourceEl = $('mcpBinarySource');
