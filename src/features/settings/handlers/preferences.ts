@@ -5,6 +5,9 @@ import type { IMcpServer } from '../../../pro/api';
 const DDL_ENABLED_KEY = 'nexql.ddlViewer.enabled';
 const DDL_OPEN_ON_SELECTION_KEY = 'nexql.ddlViewer.openOnSelection';
 const HISTORY_MAX_ITEMS_KEY = 'postgresExplorer.queryHistory.maxItems';
+const AGENTIC_MAX_STEPS_KEY = 'postgresExplorer.ai.agenticMaxSteps';
+const DEFAULT_AGENTIC_MAX_STEPS = 20;
+const MAX_AGENTIC_MAX_STEPS = 100;
 
 /**
  * Retrieves the MCP host from the coreApi if pro is loaded.
@@ -73,6 +76,7 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         ddlEnabled: config.get<boolean>(DDL_ENABLED_KEY, true),
         ddlOpenOnSelection: config.get<boolean>(DDL_OPEN_ON_SELECTION_KEY, true),
         historyMaxItems: config.get<number>(HISTORY_MAX_ITEMS_KEY, 200),
+        agenticMaxSteps: config.get<number>(AGENTIC_MAX_STEPS_KEY, DEFAULT_AGENTIC_MAX_STEPS),
         mcpEnabled,
         mcpBinaryPath,
         mcpStarted,
@@ -102,6 +106,14 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         await vscode.workspace
           .getConfiguration()
           .update(HISTORY_MAX_ITEMS_KEY, n, vscode.ConfigurationTarget.Global);
+      } else if (key === 'agenticMaxSteps') {
+        const raw = Number(value);
+        const n = Number.isFinite(raw)
+          ? Math.max(0, Math.min(MAX_AGENTIC_MAX_STEPS, Math.floor(raw)))
+          : DEFAULT_AGENTIC_MAX_STEPS;
+        await vscode.workspace
+          .getConfiguration()
+          .update(AGENTIC_MAX_STEPS_KEY, n, vscode.ConfigurationTarget.Global);
       } else if (key === 'mcpEnabled') {
         await vscode.workspace
           .getConfiguration()

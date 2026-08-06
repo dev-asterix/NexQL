@@ -48,3 +48,34 @@
 !node_modules/safer-buffer/**
 !node_modules/vscode-languageclient/**
 !node_modules/vscode-languageserver/**
+
+# Cursor provider (dynamic import in modelListing.ts / AiService.ts) — was
+# missing entirely, causing "Cannot find package '@cursor/sdk'" at runtime.
+# NOTE: @cursor/sdk depends on sqlite3 (native binding); no prebuilt .node
+# binary is vendored here, so any code path that actually touches sqlite3
+# will still fail per-platform until that's vendored like bin/nexql-mcp.
+!node_modules/@cursor/**
+!node_modules/@bufbuild/protobuf/**
+!node_modules/@connectrpc/connect/**
+!node_modules/@connectrpc/connect-node/**
+!node_modules/@statsig/js-client/**
+!node_modules/zod/**
+!node_modules/sqlite3/**
+
+# ERD DBML import (erdDbmlImport.ts) — same "external + never whitelisted" gap.
+!node_modules/@dbml/core/**
+!node_modules/@dbml/parse/**
+!node_modules/antlr4/**
+!node_modules/lodash/**
+!node_modules/lodash-es/**
+!node_modules/luxon/**
+!node_modules/parsimmon/**
+!node_modules/pluralize/**
+
+# Local embedder (dbindex localEmbedder.ts) — same gap. onnxruntime-node,
+# onnxruntime-web, and sharp are NOT whitelisted: they're native-binding deps
+# of @huggingface/transformers that aren't declared in package.json here, so
+# they're out of scope for this fix and need their own vendoring pass.
+!node_modules/@huggingface/transformers/**
+!node_modules/@huggingface/jinja/**
+!node_modules/@huggingface/tokenizers/**

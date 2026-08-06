@@ -2347,6 +2347,15 @@ $('prefHistoryMaxItems').addEventListener('change', (e) => {
   e.target.value = n;
   vscode.postMessage({ command: 'prefs/update', key: 'historyMaxItems', value: n });
 });
+const prefAgenticMaxStepsEl = $('prefAgenticMaxSteps');
+if (prefAgenticMaxStepsEl) {
+  prefAgenticMaxStepsEl.addEventListener('change', (e) => {
+    const parsed = parseInt(e.target.value, 10);
+    const n = Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 20;
+    e.target.value = n;
+    vscode.postMessage({ command: 'prefs/update', key: 'agenticMaxSteps', value: n });
+  });
+}
 $('prefMcpEnabled').addEventListener('change', (e) => {
   vscode.postMessage({ command: 'prefs/update', key: 'mcpEnabled', value: e.target.checked });
 });
@@ -2394,6 +2403,9 @@ function handlePrefsMessage(message) {
       $('prefDdlEnabled').checked = !!message.prefs.ddlEnabled;
       $('prefDdlOpenOnSelection').checked = !!message.prefs.ddlOpenOnSelection;
       $('prefHistoryMaxItems').value = message.prefs.historyMaxItems ?? 200;
+      if ($('prefAgenticMaxSteps')) {
+        $('prefAgenticMaxSteps').value = message.prefs.agenticMaxSteps ?? 20;
+      }
       
       const mcpEnabled = !!message.prefs.mcpEnabled;
       $('prefMcpEnabled').checked = mcpEnabled;
