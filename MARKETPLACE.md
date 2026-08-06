@@ -2,332 +2,243 @@
 
 # 🐘 NexQL
 
-### *Professional Database Management for VS Code*
+### _The PostgreSQL workbench inside VS Code_
 
-**NexQL is a comprehensive PostgreSQL database management extension featuring interactive SQL notebooks, real-time monitoring dashboard, AI-powered assistance, and advanced database operations—all within VS Code.**
+**Explore your schema. Understand your queries. Act safely in production.**
+
+[![Version](https://img.shields.io/visual-studio-marketplace/v/ric-v.postgres-explorer?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=2563EB)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
+[![Downloads](https://img.shields.io/visual-studio-marketplace/d/ric-v.postgres-explorer?style=for-the-badge&logo=visual-studio-code&logoColor=white&color=10B981)](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer)
+[![Stable](https://img.shields.io/badge/stable-v2.2.3-0EA5E9?style=for-the-badge&logo=visual-studio-code&logoColor=white)](https://github.com/NexQL-OSS/NexQL-Core/blob/main/CHANGELOG.md)
+
+NexQL is a PostgreSQL-native database workbench for VS Code: secure connections, schema exploration, interactive SQL notebooks, performance intelligence, visual results, AI assistance, and agent-ready MCP tools in one focused workflow.
+
+[Install NexQL](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer) · [Open the docs](https://nexql.astrx.dev/) · [Explore the OSS core](https://github.com/NexQL-OSS)
 
 </div>
 
 ---
 
-## 📸 Screenshots
+## The database workflow, redesigned for developers
 
-### 🎥 Video Guides
+NexQL keeps the database beside the code, the notebook beside the investigation, and the dangerous action behind a confirmation.
 
-#### 1. Quick Setup
-![NexQL Setup](docs/assets/01-setup.gif)
+### Explore with context
 
-#### 2. More Settings
-![More Settings](docs/assets/02-more-settings.gif)
+Navigate schemas, tables, views, materialized views, functions, procedures, aggregates, types, roles, extensions, sequences, triggers, partitions, publications, tablespaces, and foreign data wrappers from a native VS Code explorer.
 
-#### 3. AI Assistant
-![AI Assistant](docs/assets/03-ai-assist.gif)
+Drag database objects, columns, notebooks, and saved queries into the SQL Assistant as context. Open definitions as readable SQL, copy them, edit them, or use them as scaffolding for the next change.
 
-#### 4. AI Copilot
-![AI Copilot](docs/assets/04-ai-copilot.gif)
+### Understand what the database is doing
 
-#### 5. Dashboard
-![Dashboard](docs/assets/05-dashboard.gif)
+Move from “this query is slow” to evidence:
 
-#### 6. DB Operations
-![DB Operations](docs/assets/06-db-ops.gif)
+- EXPLAIN CodeLens directly in notebook cells.
+- Table profiles with size, statistics, activity, index usage, and bloat signals.
+- Live activity monitoring with lock and wait indicators.
+- Query execution history and degradation signals.
+- Index and constraint workflows that keep the generated SQL visible.
 
-#### 7. Power Editor
-![Power Editor](docs/assets/07-power-editor.gif)
+### Act with guardrails
 
-#### 8. More Features
-![More Features](docs/assets/08-more-features.gif)
+NexQL makes risky database work deliberate:
 
----
-
-## ✨ Key Features
-
-| Feature | Description |
-|---------|-------------|
-| 🔌 **Secure Connections** | Manage multiple connections with VS Code SecretStorage encryption |
-| 🛡️ **Connection Safety** | Environment tagging (🔴 PROD, 🟡 STAGING, 🟢 DEV), read-only mode, query safety analyzer |
-| 📊 **Live Dashboard** | Real-time metrics, active query monitoring, and performance graphs |
-| 📓 **SQL Notebooks** | Interactive notebooks with rich output, AI assistance, and export options |
-| 💾 **Saved Queries** | Tag-based organization, AI metadata generation, connection context restoration, edit & reuse |
-| 🌳 **Database Explorer** | Browse tables, views, functions, types, extensions, roles, and FDWs |
-| 🛠️ **Object Operations** | Full CRUD operations, scripts, VACUUM, ANALYZE, REINDEX |
-| 📊 **Table Intelligence** | Profile, activity monitor, index usage analytics, definition viewer |
-| 🔍 **EXPLAIN CodeLens** | One-click EXPLAIN/ANALYZE with results in notebooks |
-| 🛡️ **Auto-LIMIT** | Automatic query protection with configurable row limits (default 1000) |
-| 🌍 **Foreign Data Wrappers** | Manage foreign servers, user mappings, and tables |
-| 🤖 **NexQL Free AI** | Zero-config AI assistant — Smart/Engineer/Architect tiers, no API keys needed |
-| 🔌 **MCP Server** | Built-in MCP server — expose your database to Copilot, Cursor, Claude Desktop & more |
-| ⌨️ **Developer Tools** | IntelliSense, keyboard shortcuts, PSQL terminal access |
-| 📤 **Export Data** | Export query results to CSV, JSON, or Excel formats |
-| 📉 **Large result streaming** | Optional sliding-window cursor mode for big `SELECT`s — bounded memory, scroll to fetch |
-| 🔢 **Binary columns** | Configurable `bytea` display (hex / PostgreSQL / JSON debug) |
-| 🤖 **SQL Assistant** | Regenerate last reply or resend from an earlier user message; prefill when attaching context |
+- Label connections as **PROD**, **STAGING**, or **DEV**.
+- Enable read-only mode for investigation sessions.
+- Review query risk scoring and confirmation prompts.
+- Protect broad <code>SELECT</code> statements with configurable Auto-LIMIT.
+- Keep AI-generated SQL in a notebook until a human reviews and runs it.
 
 ---
 
-## 🎯 Why NexQL?
+## What you can do with NexQL
 
-<table>
-<tr>
-<td width="50%">
-
-### 🎨 Modern Interface
-- Beautiful, intuitive UI designed for developers
-- Real-time dashboard with live metrics
-- Context-aware operations
-- Seamless VS Code integration
-
-</td>
-<td width="50%">
-
-### ⚡ Powerful Features
-- Interactive SQL notebooks
-- 🤖 AI-powered Copilot & agentic support
-- Advanced query management
-- Complete CRUD operations
-
-</td>
-</tr>
-<tr>
-<td>
-
-### 🔐 Secure & Reliable
-- VS Code SecretStorage for credentials
-- Environment tagging & read-only mode
-- Query safety analyzer with risk scoring
-- Auto-LIMIT protection
-- Transaction support
-
-</td>
-<td>
-
-### 📊 Performance Intelligence
-- Table profiling with size breakdown
-- Real-time activity monitoring
-- Index usage analytics
-- Bloat detection & warnings
-- EXPLAIN CodeLens for optimization
-
-</td>
-</tr>
-<tr>
-<td>
-
-### 🚀 Developer Friendly
-- 🤖 NexQL Free AI — zero-config, no API key needed
-- 🔌 Built-in MCP server for Copilot, Cursor, Claude Desktop
-- Keyboard shortcuts
-- IntelliSense support
-- PSQL terminal integration
-
-</td>
-</tr>
-</table>
+| Workflow                | Capabilities                                                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Connect**             | SecretStorage-backed credentials, SSL modes, CA certificates, SSH tunnels, PostgreSQL-compatible cloud services      |
+| **Explore**             | Database tree, schema search, object definitions, table designer, indexes, constraints, FDWs                         |
+| **Query**               | Native <code>.pgsql</code> notebooks, completions, saved queries, parameters, transactions, keyboard-first execution |
+| **Analyze**             | EXPLAIN, query history, table intelligence, live activity, result statistics, charts                                 |
+| **Operate**             | CRUD and DDL workflows, VACUUM, ANALYZE, REINDEX, scripts, export, controlled in-grid editing                        |
+| **Collaborate with AI** | Natural language to SQL, explain, optimize, fix errors, analyze results, multiple assistant tabs                     |
+| **Connect agents**      | MCP schema discovery, safe reads, EXPLAIN, join paths, table statistics, and index usage                             |
 
 ---
 
-## 📋 Feature Matrix
+## AI that knows the schema—and waits for you
 
-| Area | NexQL v2.2.0 | Notes |
-|---|---|---|
-| Core PostgreSQL object operations | ✅ | Tables, views, mat views, functions, roles, extensions, FDWs, and more |
-| AI-assisted SQL workflows | ✅ | Generate, optimize, explain, analyze, and notebook handoff |
-| NexQL Free AI (zero-config) | ✅ | Smart / Engineer / Architect tiers, no API keys required |
-| MCP Server | ✅ | Expose DB tools to Copilot, Cursor, Claude Desktop, and more |
-| Production safety controls | ✅ | Read-only mode, query risk scoring, confirmation prompts, Auto-LIMIT |
-| Real-time monitoring dashboard | ✅ | Activity and performance telemetry in VS Code |
-| Interactive SQL notebooks | ✅ | Native `.pgsql` notebook workflow |
-| Data Import | ✅ Free | No usage cap — unlimited across all tiers |
-| Backup & Restore | ✅ Free | No usage cap — unlimited across all tiers |
-| Database Indexing | ✅ Free | Build, auto-index, semantic index — unlimited across all tiers |
-| In-grid editing parity with desktop IDEs | ⚠️ Partial | Planned enhancements in upcoming releases |
-| ERD/schema visualization parity | ⚠️ Partial | Under active expansion |
+NexQL’s AI workflow is designed for database engineering, not blind automation.
 
----
+### NexQL Free AI
 
-## ⚠️ Known Limitations (v2.2.0)
+The published product includes a zero-configuration managed provider with three capability levels:
 
-- In-grid editing is currently more limited than full desktop DB IDEs.
-- ERD/schema visualization is available but not yet feature-complete.
-- Some advanced PostgreSQL admin workflows are partial and are scheduled for incremental updates.
-- NexQL Free AI gateway is in Beta and may be subject to quota adjustments.
+- **Smart** — everyday SQL generation, explanations, and schema help.
+- **Engineer** — deeper optimization and migration support.
+- **Architect** — advanced database engineering workflows.
 
----
+No provider key is required for the managed experience. Availability, quotas, and pricing are subject to change; see [AI Settings](https://nexql.astrx.dev/#ai) for current details.
 
-## 🌐 Works With Your Postgres — Wherever It Runs
+### Bring your own provider
 
-NexQL connects to **any PostgreSQL-wire-compatible database**:
+Use GitHub Models, GitHub Copilot/VS Code LM, OpenAI, Anthropic, Gemini, Ollama, LM Studio, or a custom OpenAI-compatible endpoint.
 
-- ✅ **PostgreSQL 12–17** — self-hosted, Docker, on-prem
-- ✅ **Neon** — serverless Postgres (use the direct endpoint, SSL `require`)
-- ✅ **Supabase** — direct or session pooler connections
-- ✅ **TimescaleDB** & Timescale Cloud — 100% compatible (Postgres extension)
-- ✅ **YugabyteDB** (YSQL) — distributed Postgres, port 5433
-- ✅ **AWS RDS / Aurora**, **Google Cloud SQL / AlloyDB**, **Azure Database for PostgreSQL**
+### A reviewable execution loop
 
-See the [compatibility guide](https://github.com/dev-asterix/NexQL/blob/main/docs/COMPATIBILITY.md) for per-platform connection settings and caveats.
+1. Describe the outcome you want.
+2. NexQL grounds the request with selected live schema or result context.
+3. AI proposes SQL or an explanation.
+4. You review it in chat or a notebook cell.
+5. You choose when to execute.
+
+AI suggestions are not silently run against your database.
 
 ---
 
-## 🌳 Database Explorer
+## MCP for the tools your agents can trust
 
-Navigate your database with an intuitive hierarchical tree view:
+NexQL can expose a connected PostgreSQL database to MCP-compatible clients such as GitHub Copilot, Cursor, Claude Desktop, Codex, and other agent runtimes.
 
-```
-📁 Connection
-└── 🗄️ Database
-    └── 📂 Schema
-        ├── 📊 Tables
-        ├── 👁️ Views
-        ├── 🔄 Materialized Views
-        ├── ⚙️ Functions
-        ├── 🏷️ Types
-        ├── 🌍 Foreign Data Wrappers
-        ├── 🧩 Extensions
-        └── 👥 Roles
-```
+Available read-focused tools include:
+
+- <code>list_schemas</code>, <code>list_objects</code>, <code>describe_object</code>, and <code>search_schema</code>
+- <code>run_select</code> and <code>explain_query</code>
+- <code>get_join_path</code>
+- <code>get_table_stats</code> and <code>get_index_usage</code>
+
+Inside VS Code, NexQL registers the bundled <code>nexql-mcp</code> binary as a stdio server. External clients can use the optional fixed-port mode with a SecretStorage-backed bearer token. Configure the integration through **NexQL Settings → Preferences**; use <code>postgresExplorer.mcp.binaryPath</code> for a custom or debug binary.
+
+SSH-tunneled connections are excluded from ephemeral MCP profiles. Managed TLS profiles carry their relevant certificate settings.
 
 ---
 
-## 💾 Saved Queries Library
+## Notebooks that preserve the investigation
 
-Organize, manage, and reuse your most important queries with intelligent tagging and context preservation.
+Native <code>.pgsql</code> notebooks keep SQL, context, outputs, and reasoning together:
 
-### Core Capabilities
-- **🏷️ Tag-Based Organization** — Group queries by purpose for instant discovery
-- **🔗 Connection Context** — Queries remember their original connection, database, and schema
-- **📓 One-Click Reopening** — Restore queries with full context in a new notebook
-- **✏️ In-Place Editing** — Modify queries without creating duplicates
-- **🤖 AI Metadata Generation** — Auto-generate titles, descriptions, and tags
-- **📊 Rich Metadata Display** — See creation date, usage count, database, and connection at a glance
+- Execute cells with <code>Ctrl+Enter</code>.
+- Run and advance with <code>Shift+Enter</code>.
+- Reopen saved queries with their connection and schema context.
+- Attach schema objects, notebooks, and saved queries to AI prompts.
+- Filter, transpose, and inspect result data without exporting first.
+- Edit grid values through an explicit commit flow.
+- Stream large result sets through a bounded sliding window.
+- Export results to CSV, JSON, or Excel.
 
----
+### Visualize results without leaving VS Code
 
-## 🤖 AI-Powered Assistance
-
-Leverage AI to write, optimize, and debug your queries faster.
-
-### 🚀 NexQL Free AI — Zero-Config (Default, v2.2.0)
-
-No API keys, no provider accounts, no setup. **NexQL Free AI** is the default AI provider, powered by managed models behind a secure gateway proxy:
-
-- 🧠 **Smart** (free) — Daily-use AI for queries, explanations, and schema help. ~600K tokens/month.
-- 🔧 **Engineer** (Sponsor · $2/mo) — Advanced model for complex optimization and migrations. ~3M tokens/month.
-- 🏗️ **Architect** (Singularity · $9/mo) — The best AI for database engineering. ~10M tokens/month.
-
-### 🔌 MCP Server — New in v2.2.0
-
-NexQL now exposes your connected PostgreSQL databases as a **Model Context Protocol (MCP) server**, letting GitHub Copilot, Cursor, Claude Desktop, and any other MCP-compatible AI agent use NexQL's live schema tools:
-
-- Schema discovery (`list_schemas`, `list_objects`, `describe_object`, `search_schema`)
-- Safe SQL execution (`run_select`, `explain_query`)
-- Join-path inference (`get_join_path`)
-- Performance analytics (`get_table_stats`, `get_index_usage`)
-
-Enable via **NexQL Settings → Preferences**. VS Code's Copilot discovers NexQL automatically — no manual config required.
-
-- **Smart Completions** — Context-aware SQL suggestions
-- **Query Explanation** — Understand complex queries in plain English
-- **Query Optimization** — Get performance improvement suggestions
-- **Error Detection** — Real-time syntax and logical error detection
-- **Natural Language to SQL** — Describe what you need, let AI write the SQL
-
-### 🛡️ Safe AI Execution
-NexQL provides a **Safe Execution Model** for AI interactions.
-- **Human-in-the-Loop**: AI generates the code, but it is **never executed automatically**. You review it in a notebook cell first.
-- **Context Control**: You decide which tables the AI can see.
-
-**Supported AI Providers:**
-- NexQL Free AI (default — no API key required)
-- GitHub Copilot (VS Code LM)
-- GitHub Models (GitHub account sign-in)
-- OpenAI (GPT-4.1, o4-mini, and more)
-- Anthropic Claude (Sonnet 4, Haiku, and more)
-- Google Gemini (2.5 Flash, 2.5 Pro)
-- Ollama / LM Studio / Custom OpenAI-compatible endpoints
+Turn query results into bar, line, area, pie, doughnut, or scatter charts. Inspect wide value ranges with log scales, zoom into points, and use optional glow/blur styling for presentation-ready analysis.
 
 ---
 
-## 🎨 Rich Data Visualization
+## Database operations, without the context switch
 
-Transform your data into insights without exporting to Excel.
+| Object                           | Common actions                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| **Tables**                       | View, edit, insert, update, delete, truncate, drop, VACUUM, ANALYZE, REINDEX |
+| **Views and materialized views** | Open definitions, query data, edit, refresh, drop                            |
+| **Functions and procedures**     | Inspect, edit, call with parameters, drop                                    |
+| **Types and domains**            | Inspect properties, edit, drop                                               |
+| **FDWs and foreign tables**      | Manage servers, mappings, imported schemas, and tables                       |
+| **Extensions and roles**         | Enable/disable extensions; manage grants and role properties                 |
 
-### Instantly Visualize Results
-- **One-Click Charts**: Create Bar, Line, Area, and Pie charts from any query result.
-- **Customizable**: Adjust log scales, use varied point styles, and control fill opacity.
-- **Modern VFX**: Enable **Glow** and **Blur** effects for stunning, dashboard-ready visuals.
-- Custom Endpoints
+NexQL keeps generated SQL visible and respects server capabilities, permissions, and PostgreSQL-compatible platform differences.
 
 ---
 
-## 🚀 Quick Start
+## PostgreSQL, wherever it runs
 
-### Installation
+NexQL works with tested PostgreSQL and PostgreSQL-compatible platforms:
 
-1. Open VS Code → Press `Ctrl+Shift+X`
-2. Search for **NexQL**
-3. Click **Install**
+- **PostgreSQL 12–17** — self-hosted, Docker, and on-premises.
+- **Neon** — prefer the direct, non-pooler endpoint with SSL <code>require</code>.
+- **Supabase** — direct or session pooler connections; avoid transaction pooler for interactive sessions.
+- **TimescaleDB and Timescale Cloud** — PostgreSQL extension compatibility.
+- **YugabyteDB (YSQL)** — mostly compatible; use port 5433.
+- **AWS RDS/Aurora**, **Google Cloud SQL/AlloyDB**, and **Azure Database for PostgreSQL Flexible Server**.
 
-Or install via command line:
+See the [compatibility guide](https://github.com/NexQL-OSS/NexQL-Core/blob/main/docs/COMPATIBILITY.md) for provider-specific settings and known caveats.
+
+---
+
+## Install in seconds
+
+1. Open VS Code and press <code>Ctrl+Shift+X</code>.
+2. Search for **NexQL**.
+3. Select **Install**.
+4. Open the PostgreSQL view in the Activity Bar.
+5. Choose **Add Connection** and connect.
+
+Or install from a terminal:
+
 ```bash
 code --install-extension ric-v.postgres-explorer
 ```
 
-### First Connection
+---
 
-1. Click the PostgreSQL icon in the Activity Bar
-2. Click **Add Connection** or use `Ctrl+Shift+P` → `PostgreSQL: Add Connection`
-3. Enter your connection details and click **Save**
-4. Click on your connection to connect and start exploring!
+## Secure by design
+
+- Credentials are stored with VS Code SecretStorage encryption.
+- Environment signals make production context visible before execution.
+- Read-only mode supports safe investigation sessions.
+- Risk scoring and confirmation prompts make destructive actions explicit.
+- Auto-LIMIT protects broad reads; use an explicit <code>LIMIT</code> when you need a deliberate result size.
+- Telemetry is allowlisted and bucketed. SQL text, object names, hostnames, database names, usernames, and credentials are not collected.
+- VS Code’s global telemetry setting is a hard gate.
+
+Configure telemetry with:
+
+- <code>postgresExplorer.telemetry.mode</code>: <code>off</code>, <code>basic</code>, or <code>detailed</code>
+- <code>postgresExplorer.telemetry.allowUsage</code>
+- <code>postgresExplorer.telemetry.allowPerformance</code>
 
 ---
 
-## 📊 Complete Database Operations
+## Core and Pro
 
-| Object Type | Operations |
-|-------------|------------|
-| 📊 **Tables** | View, Edit, Insert, Update, Delete, Truncate, Drop, VACUUM, ANALYZE, REINDEX |
-| 👁️ **Views** | View Definition, Edit, Query Data, Drop |
-| 🔄 **Materialized Views** | Refresh, View Data, Edit, Drop |
-| ⚙️ **Functions** | View, Edit, Call with Parameters, Drop |
-| 🏷️ **Types** | View Properties, Edit, Drop |
-| 🌍 **Foreign Data Wrappers** | Create/Drop Server, User Mappings, Import Schema |
-| 🔗 **Foreign Tables** | View, Edit, Drop |
-| 🧩 **Extensions** | Enable, Disable, Drop |
-| 👥 **Roles** | Grant/Revoke Permissions, Edit, Drop |
+NexQL is open core:
+
+- **NexQL Core** is MIT-licensed and available at [NexQL-OSS](https://github.com/NexQL-OSS).
+- The Marketplace extension is the **Pro build**, combining Core with premium AI, MCP, dashboard, Plan Studio, backup/restore, schema design, and database-indexing capabilities.
+- The Core repository can still build a complete free/OSS extension for users who want to fork, rebrand, or extend it.
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+## Feature status
 
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+Enter` | Execute current cell |
-| `Shift+Enter` | Execute and move to next |
-| `F5` | Refresh current item |
-| `Ctrl+Shift+P` | Command palette |
+| Area                                                       | Status       |
+| ---------------------------------------------------------- | ------------ |
+| PostgreSQL connections and explorer                        | ✅ Available |
+| SQL notebooks and saved queries                            | ✅ Available |
+| Production safety controls                                 | ✅ Available |
+| EXPLAIN and performance intelligence                       | ✅ Available |
+| AI assistance and provider integrations                    | ✅ Pro       |
+| MCP agent tools                                            | ✅ Pro       |
+| Real-time monitoring dashboard                             | ✅ Pro       |
+| Backup and restore                                         | ✅ Pro       |
+| Database indexing and semantic grounding                   | ✅ Pro       |
+| Advanced visual schema design                              | ✅ Pro       |
+| Full desktop-IDE parity for every in-grid editing workflow | 🚧 Expanding |
+
+Product capabilities evolve continuously. Check the [current changelog](https://github.com/NexQL-OSS/NexQL-Core/blob/main/CHANGELOG.md) for release-level detail.
 
 ---
 
-## 📚 Resources
+## Resources
 
-- 📖 [Full Documentation](https://nexql.astrx.dev/)
-- 🐛 [Report Issues](https://github.com/dev-asterix/NexQL/issues)
-- 💡 [Request Features](https://github.com/dev-asterix/NexQL/issues/new?template=feature_request.md)
-- ⭐ [Star on GitHub](https://github.com/dev-asterix/NexQL)
-
----
-
-## 📝 License
-
-This extension is licensed under the [MIT License](https://github.com/dev-asterix/NexQL/blob/main/LICENSE).
+- [NexQL website and interactive demo](https://nexql.astrx.dev/)
+- [NexQL OSS organization](https://github.com/NexQL-OSS)
+- [Compatibility guide](https://github.com/NexQL-OSS/NexQL-Core/blob/main/docs/COMPATIBILITY.md)
+- [Security policy](https://github.com/NexQL-OSS/NexQL-Core/blob/main/SECURITY.md)
+- [Changelog](https://github.com/NexQL-OSS/NexQL-Core/blob/main/CHANGELOG.md)
+- [Open VSX](https://open-vsx.org/extension/ric-v/postgres-explorer)
 
 ---
 
 <div align="center">
 
-**Made with ❤️ for the PostgreSQL Community**
+**NexQL — database work, without leaving the editor.**
 
-Also available on [Open VSX](https://open-vsx.org/extension/ric-v/postgres-explorer)
+Made with ❤️ for the PostgreSQL community.
 
 </div>
