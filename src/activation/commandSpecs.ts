@@ -421,16 +421,14 @@ export function getCommandSpecs(
     {
       command: 'nexql.bot.revealObject',
       callback: async (connectionId?: string, databaseName?: string, schema?: string, objectName?: string) => {
-        let connId = connectionId;
-        if (!connId) {
-          const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
-          if (connections.length > 0) {
-            connId = connections[0].id;
-          }
+        // No silent fallback to an arbitrary connection — a caller with no resolved
+        // connection context (e.g. chat hasn't connected yet) should surface that,
+        // not jump to whichever connection happens to be first in the list.
+        if (!connectionId) {
+          vscode.window.showWarningMessage('No active database connection to reveal this object in — connect first.');
+          return;
         }
-        if (connId) {
-          await databaseTreeProvider.revealItem(connId, databaseName, schema, objectName);
-        }
+        await databaseTreeProvider.revealItem(connectionId, databaseName, schema, objectName);
       }
     },
     {

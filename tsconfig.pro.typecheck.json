@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.pro.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "packages/pro/src/**/*",
+    "packages/pro/renderer/**/*"
+  ]
+}

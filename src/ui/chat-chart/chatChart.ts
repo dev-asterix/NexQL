@@ -1,6 +1,5 @@
 import { ChartRenderer } from '../../renderer/components/chart/ChartRenderer';
 import { autoDetectAxes } from '../../renderer/components/chart/ChartControls';
-import { ChartType } from 'chart.js';
 
 interface ChartSpec {
   containerId?: string;
@@ -40,34 +39,13 @@ export function renderChatChart(spec: ChartSpec): ChartRenderer | null {
     return null;
   }
 
-  // Map requested chartType to ChartRenderer options
-  let type: ChartType = 'bar';
-  let fillArea = false;
-
-  switch (chartType) {
-    case 'line':
-      type = 'line';
-      break;
-    case 'area':
-      type = 'line';
-      fillArea = true;
-      break;
-    case 'pie':
-      type = 'pie';
-      break;
-    case 'doughnut':
-      type = 'doughnut';
-      break;
-    case 'stackedBar':
-    case 'bar':
-    default:
-      type = 'bar';
-      break;
-  }
-
+  // ChartRenderOptions.type is a plain string and ChartRenderer already handles
+  // 'area' (line + fill) and 'stackedBar' (stacked bar scales) natively — no
+  // need to collapse them into 'line'/'bar' here (that used to lose the
+  // distinction entirely). Unrecognized values fall back to 'bar' there too.
   const renderer = new ChartRenderer(canvas);
   renderer.render(rows, {
-    type,
+    type: chartType || 'bar',
     xAxisCol,
     yAxisCols,
     numericCols: yAxisCols,

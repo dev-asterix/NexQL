@@ -49,6 +49,7 @@ dev-pro:
 	@if [ -f package.json.dev-bak ]; then cp package.json.dev-bak package.json; else cp package.json package.json.dev-bak; fi
 	$(NODE_BIN) ./scripts/merge-pro-manifest.js
 	cp -r packages/pro/templates/. templates/
+	$(NPM_BIN) run typecheck:pro
 	$(NPM_BIN) run esbuild:pro
 	@echo "Pro dev mode ON — package.json has merged pro manifest; press F5. Run 'make dev-free' before committing."
 
@@ -95,6 +96,7 @@ package-pro:
 	@# `make vendor-nexql-mcp` still exists for local dev if you want a bundled copy.
 	@cp package.json package.json.bak
 	@trap 'if [ -f package.json.bak ]; then mv package.json.bak package.json; fi; (cd packages/pro/templates && find . -type f) | while read -r f; do rm -f "templates/$$f"; done; find templates -type d -empty -delete 2>/dev/null || true' EXIT INT TERM; \
+	$(NPM_BIN) run typecheck:pro; \
 	$(NODE_BIN) ./scripts/merge-pro-manifest.js; \
 	cp -r packages/pro/templates/. templates/; \
 	if [ -f README.md ]; then cp README.md README.md.bak; fi; \

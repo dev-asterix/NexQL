@@ -5,6 +5,20 @@ import { LicenseService } from '../services/LicenseService';
 import { TelemetryService } from '../services/TelemetryService';
 import { MessageHandlerRegistry } from '../services/MessageHandler';
 import { NotebookBuilder } from '../commands/helper';
+import type { ConnectionConfig } from '../common/types';
+
+/** Params for ChatViewProvider.openBackupToolsAssistant (Backup & Restore panel). */
+export interface OpenBackupToolsAssistantParams {
+  scenario: 'version_banner' | 'tool_log';
+  connectionId: string;
+  databaseLabel: string;
+  databaseName: string;
+  connection?: ConnectionConfig;
+  toolLog?: string;
+  serverMajor: number;
+  pgDumpMajor: number;
+  pgRestoreMajor: number;
+}
 
 /**
  * Minimal interface for the chat view provider that core code may call.
@@ -24,6 +38,8 @@ export interface IChatViewProvider {
   handleFixQuery?(error: string, query: string): void | Promise<void>;
   handleAnalyzeData?(data: any, query: string, rowCount: number): void | Promise<void>;
   handleOptimizeQuery?(query: string, executionTime: number): void | Promise<void>;
+  openBackupToolsAssistant(params: OpenBackupToolsAssistantParams): void | Promise<void>;
+  refreshModelInfo(): void;
 }
 
 /** Command/args/env bundle for spawning nexql-mcp via stdio. */

@@ -3620,6 +3620,8 @@
     "esbuild-erd-webview:pro": "esbuild ./packages/pro/src/schemaDesigner/erd/webview/main.ts --bundle --preserve-symlinks --outfile=dist/erd-webview.js --format=iife --platform=browser",
     "copy-templates": "cp -r templates dist/",
     "compile": "tsc -p ./ && npm run esbuild-renderer:free && npm run esbuild-erd-webview && npm run esbuild-chat-chart && npm run copy-templates",
+    "compile:pro": "npm run typecheck:pro && npm run esbuild:pro && npm run copy-templates",
+    "typecheck:pro": "if [ -d packages/pro ]; then tsc --noEmit -p tsconfig.pro.typecheck.json; else echo 'packages/pro absent — skipping pro typecheck'; fi",
     "watch": "tsc -watch -p ./",
     "esbuild": "npm run esbuild:free",
     "esbuild:free": "npm run esbuild-base:free -- --sourcemap && npm run esbuild-renderer:free -- --sourcemap && npm run esbuild-erd-webview:free -- --sourcemap && npm run esbuild-chat-chart -- --sourcemap",
