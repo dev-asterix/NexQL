@@ -568,7 +568,11 @@ export class SqlExecutor {
       }
 
       // If we matched the connection via fallback, correct the metadata in the notebook
-      if (metadata.connectionId !== connection.id) {
+      // — but never persist a single-connection guess (that branch is opt-in only).
+      const usedSingleConnectionGuess =
+        !metadata.connectionId &&
+        ConnectionUtils.getConnections().length === 1;
+      if (metadata.connectionId !== connection.id && !usedSingleConnectionGuess) {
         metadata = {
           ...metadata,
           connectionId: connection.id

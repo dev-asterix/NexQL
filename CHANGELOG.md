@@ -7,6 +7,54 @@ Quick links:
 
 ---
 
+## [2.5.0] - 2026-08-08
+
+> Nightly pre-release — same feature set as [v2.4.0](#240---2026-08-08).
+
+---
+
+## [2.4.0] - 2026-08-08
+
+### 🤖 NexQL Bot rebrand
+
+- **SQL Assistant → NexQL Bot** — Commands, activity bar view, settings keys, and chat UI copy renamed across the extension; deprecated SQL Assistant icon removed.
+
+### 🔌 MCP server & agent configuration
+
+- **Settings hub MCP panel** — Tool profile picker (`meta` / `query` / `dba` / `full`), resolved binary path/source display, and restart-required banner when the ephemeral profile changes.
+- **One-click install** — Preferences opens a terminal with `npm install -g nexql-mcp` or `cargo install nexql-mcp`; npm is recommended on all platforms.
+- **PATH re-probe** — After a global install, **Detect** / **Re-check installed version** refreshes the shell PATH and re-resolves the binary without a window reload.
+- **Update checks** — Manual **Check for update** compares the installed `nexql-mcp` against the latest npm release; update banner offers npm, cargo, or a copy-paste GitHub Releases curl snippet for air-gapped installs.
+- **Core MCP API** — `checkForUpdate()`, `latestVersion` / `updateAvailable` on server status, launch descriptors, and connection invalidation hooks for pro builds.
+
+### 🧠 Agentic AI controls
+
+- **`postgresExplorer.ai.agenticMaxSteps`** — Configurable cap on tool-loop steps per NexQL Bot run (default 20, max 100); oldest history is trimmed first when context is tight.
+- **Settings hub** — Agentic step limit exposed in Preferences with inline description.
+
+### 📝 Notebooks & query generation
+
+- **Generate Query** — Database picker when the selected connection exposes multiple databases; connection + database context is passed through to NexQL Bot.
+- **Scratch notebooks** — Name-keyed scratch paths with legacy connection-id fallback; reopening scratch for a different connection/database opens a fresh notebook instead of silently reusing the wrong one.
+- **Metadata repair** — Scratch notebooks missing connection metadata get backfilled on open.
+
+### 📖 Documentation
+
+- **README & MARKETPLACE** — Restructured for clearer product positioning and onboarding.
+
+### 🛠️ Build & packaging
+
+- **Pro type-check** — `tsconfig.pro.typecheck.json` and Makefile target for type-checking the pro build seam.
+- **`.vscodeignore`** — Runtime dependencies (onnxruntime, sharp, sqlite3, etc.) included correctly in packaged VSIX builds.
+- **Template loader** — Shared CSS prepend and optional `chat-actions.js` injection for pro webview templates.
+
+### Fixed
+
+- **GitHub sign-in on focus (Fixes #132)** — Usage backend seam extended so unsigned users never trigger session resolution during status-bar refresh.
+- **Single-connection notebook guess** — SqlExecutor no longer persists a lone configured connection onto notebooks that lack connection metadata (opt-in fallback only).
+
+---
+
 ## [2.2.3] - 2026-07-29
 
 ### 🔌 MCP Server — stdio Cutover

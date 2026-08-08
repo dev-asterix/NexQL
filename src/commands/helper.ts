@@ -187,12 +187,17 @@ export class NotebookBuilder {
   private async _showPersistent(): Promise<void> {
     const sessionKey = this.sessionKey!;
     const context = _extensionContext!;
-    const { getScratchUri, getLatestNumberedUri, isNotebookForSession } = await import('../services/SessionRegistry');
+    const { getScratchUri, getLegacyScratchUri, getLatestNumberedUri, isNotebookForSession } = await import('../services/SessionRegistry');
     const scratchUri = getScratchUri(
       context.globalStorageUri,
       this.connectionId!,
       this.databaseName!,
       this.metadata?.name as string | undefined
+    );
+    const legacyScratchUri = getLegacyScratchUri(
+      context.globalStorageUri,
+      this.connectionId!,
+      this.databaseName!,
     );
 
     const connName = this.metadata?.name as string | undefined;
@@ -239,18 +244,56 @@ export class NotebookBuilder {
       }
     }
 
-    // ── Priority 5: base scratch file ──
+    // ── Priority 5: base scratch file (name-keyed, then legacy id-keyed) ──
     if (!doc) {
-      let fileExists = false;
-      try { await vscode.workspace.fs.stat(scratchUri); fileExists = true; } catch { /* not found */ }
-      if (fileExists) {
-        const notebook = await vscode.workspace.openNotebookDocument(scratchUri);
-        SessionRegistry.set(sessionKey, notebook);
-        doc = notebook;
+      for (const candidateUri of [scratchUri, legacyScratchUri]) {
+        let fileExists = false;
+        try { await vscode.workspace.fs.stat(candidateUri); fileExists = true; } catch { /* not found */ }
+        if (fileExists) {
+          const notebook = await vscode.workspace.openNotebookDocument(candidateUri);
+          SessionRegistry.set(sessionKey, notebook);
+          doc = notebook;
+          break;
+        }
       }
     }
 
     if (doc) {
+      const effectiveMeta = ConnectionUtils.getEffectiveMetadata(doc.metadata);
+      const targetConnId = this.metadata?.connectionId;
+      const targetDb = this.databaseName;
+      if (
+        effectiveMeta?.connectionId &&
+        targetConnId &&
+        targetDb &&
+        (effectiveMeta.connectionId !== targetConnId || effectiveMeta.databaseName !== targetDb)
+      ) {
+        await this.showNew();
+        return;
+      }
+
+      if (targetConnId && targetDb && (!effectiveMeta?.connectionId || !effectiveMeta?.databaseName)) {
+        const cleanMetadata = {
+          connectionId: targetConnId,
+          host: this.metadata?.host,
+          port: this.metadata?.port,
+          username: this.metadata?.username,
+          database: targetDb,
+          databaseName: targetDb,
+          name: this.metadata?.name,
+          title: this.metadata?.title,
+        };
+        await ConnectionUtils.updateNotebookMetadata(doc, {
+          ...cleanMetadata,
+          custom: {
+            cells: (doc.metadata as any)?.custom?.cells || [],
+            metadata: {
+              ...cleanMetadata,
+              enableScripts: true,
+            },
+          },
+        });
+      }
       // Cell count guard: warn when the notebook is getting large
       const CELL_LIMIT = 150;
       if (doc.cellCount >= CELL_LIMIT) {

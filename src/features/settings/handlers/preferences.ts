@@ -8,6 +8,38 @@ const MCP_INSTALL_COMMANDS: Record<string, string> = {
   cargo: 'cargo install nexql-mcp',
 };
 
+/** `${process.platform}-${process.arch}` → Rust target triple, matching nexql-mcp's release matrix (mcp/.github/workflows/release.yml). */
+const MCP_RELEASE_TRIPLES: Record<string, string> = {
+  'linux-x64': 'x86_64-unknown-linux-gnu',
+  'linux-arm64': 'aarch64-unknown-linux-gnu',
+  'darwin-x64': 'x86_64-apple-darwin',
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'win32-x64': 'x86_64-pc-windows-msvc',
+};
+
+/**
+ * Copy-pasteable curl+tar snippet pulling the nexql-mcp release tarball
+ * straight from GitHub (github.com/NexQL-OSS/mcp) — an alternative to the
+ * npm/cargo buttons for locked-down environments without registry access.
+ * `undefined` for OS/arch combos nexql-mcp doesn't publish prebuilt
+ * binaries for (UI falls back to npm/cargo only).
+ */
+function buildMcpUpdateCurlCommand(version: string): string | undefined {
+  const triple = MCP_RELEASE_TRIPLES[`${process.platform}-${process.arch}`];
+  if (!triple) return undefined;
+  const tag = `v${version}`;
+  const asset = `nexql-mcp-${tag}-${triple}`;
+  const baseUrl = `https://github.com/NexQL-OSS/mcp/releases/download/${tag}/${asset}.tar.gz`;
+  if (process.platform === 'win32') {
+    // curl.exe/tar.exe ship with Windows 10+; extracts to the current dir — move nexql-mcp.exe onto PATH yourself.
+    return (
+      `curl.exe -fsSL -o ${asset}.tar.gz ${baseUrl} && ` +
+      `tar.exe -xzf ${asset}.tar.gz --strip-components=1 ${asset}/nexql-mcp.exe`
+    );
+  }
+  return `curl -fsSL ${baseUrl} | tar -xz --strip-components=1 -C /usr/local/bin ${asset}/nexql-mcp`;
+}
+
 const DDL_ENABLED_KEY = 'nexql.ddlViewer.enabled';
 const DDL_OPEN_ON_SELECTION_KEY = 'nexql.ddlViewer.openOnSelection';
 const HISTORY_MAX_ITEMS_KEY = 'postgresExplorer.queryHistory.maxItems';
@@ -46,6 +78,9 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         break;
       case 'mcpDetect':
         await this.detectMcpBinary();
+        break;
+      case 'mcpCheckUpdate':
+        await this.checkMcpUpdate();
         break;
     }
   }
@@ -87,6 +122,22 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
     await this.sendState();
   }
 
+  /** Manual "Check for update" click — bypasses the host's registry cache. */
+  private async checkMcpUpdate(): Promise<void> {
+    const server = getMcpServerFromApi();
+    if (server?.checkForUpdate) {
+      try {
+        await server.checkForUpdate(true);
+      } catch (err) {
+        this.host.post({
+          type: 'prefs/error',
+          error: `Failed to check nexql-mcp version: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
+    await this.sendState();
+  }
+
   private async sendState(): Promise<void> {
     const config = vscode.workspace.getConfiguration();
     const mcpEnabled = config.get<boolean>('postgresExplorer.mcp.enabled', false);
@@ -96,6 +147,8 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
     let binaryPath = '';
     let binarySource = '';
     let version = '';
+    let latestVersion = '';
+    let updateAvailable = false;
     let mcpError = '';
     let mcpSkippedConnections: string[] = [];
     let mcpRestartRequired = false;
@@ -109,6 +162,8 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         binaryPath = info.binaryPath || '';
         binarySource = info.binarySource || '';
         version = info.version || '';
+        latestVersion = info.latestVersion || '';
+        updateAvailable = !!info.updateAvailable;
         mcpSkippedConnections = info.skippedConnections ?? [];
         mcpRestartRequired = !!info.restartRequired;
         mcpGeneration = info.generation ?? 0;
@@ -120,6 +175,8 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
       binaryPath = server.info.binaryPath || '';
       binarySource = server.info.binarySource || '';
       version = server.info.version || '';
+      latestVersion = server.info.latestVersion || '';
+      updateAvailable = !!server.info.updateAvailable;
       mcpSkippedConnections = server.info.skippedConnections ?? [];
       mcpRestartRequired = !!server.info.restartRequired;
       mcpGeneration = server.info.generation ?? 0;
@@ -138,11 +195,15 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         mcpBinaryResolved: binaryPath,
         mcpBinarySource: binarySource,
         mcpVersion: version,
+        mcpLatestVersion: latestVersion,
+        mcpUpdateAvailable: updateAvailable,
+        mcpUpdateCurlCommand:
+          (updateAvailable && latestVersion && buildMcpUpdateCurlCommand(latestVersion)) || '',
         mcpError,
         mcpSkippedConnections,
         mcpRestartRequired,
         mcpGeneration,
-        mcpToolProfile: config.get<string>('postgresExplorer.mcp.toolProfile', 'meta'),
+        mcpToolProfile: config.get<string>('postgresExplorer.mcp.toolProfile', 'full'),
         mcpOsPlatform: process.platform,
         // Legacy keys kept so older webview bundles don't throw.
         mcpPort: 0,
@@ -174,7 +235,7 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
           .getConfiguration()
           .update(AGENTIC_MAX_STEPS_KEY, n, vscode.ConfigurationTarget.Global);
       } else if (key === 'mcpToolProfile') {
-        const profile = String(value || 'meta');
+        const profile = String(value || 'full');
         await vscode.workspace
           .getConfiguration()
           .update('postgresExplorer.mcp.toolProfile', profile, vscode.ConfigurationTarget.Global);

@@ -50,6 +50,15 @@ export function getScratchUri(globalStorageUri: vscode.Uri, connectionId: string
   return vscode.Uri.joinPath(globalStorageUri, safeName, safeDb, 'scratch.pgsql');
 }
 
+/**
+ * Probe legacy scratch path keyed by connectionId (pre-name metadata migration).
+ */
+export function getLegacyScratchUri(globalStorageUri: vscode.Uri, connectionId: string, databaseName: string): vscode.Uri {
+  const safeId = connectionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeDb = databaseName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return vscode.Uri.joinPath(globalStorageUri, safeId, safeDb, 'scratch.pgsql');
+}
+
 const _ADJECTIVES = [
   'admiring', 'adoring', 'affectionate', 'agitated', 'amazing', 'angry', 'awesome',
   'blissful', 'bold', 'boring', 'brave', 'busy', 'charming', 'clever', 'cool',

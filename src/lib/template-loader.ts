@@ -101,6 +101,17 @@ export async function readSharedTemplateCss(extensionUri: vscode.Uri): Promise<s
   return parts.join('\n');
 }
 
+/** Optional shared chat-actions.js for chat + dashboard pill rendering. */
+export async function readSharedChatActionsJs(extensionUri: vscode.Uri): Promise<string> {
+  const uri = vscode.Uri.joinPath(extensionUri, 'templates', 'shared', 'chat-actions.js');
+  try {
+    const buf = await vscode.workspace.fs.readFile(uri);
+    return new TextDecoder().decode(buf);
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Load a panel template folder (index.html + styles.css + scripts.js) with shared
  * design system, CSP, and nonce — same pattern as BackupRestoreHtml / DashboardHtml.

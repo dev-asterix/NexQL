@@ -1476,11 +1476,26 @@ function updateScopeStatus(scope, provider) {
   }
 }
 
+function buildListModelsSettings(provider, endpoint, scope) {
+  const settings = { provider, endpoint: endpoint || '', scope };
+  const apiKey = apiKeyForMessage(provider);
+  if (apiKey) {
+    if (provider === 'cursor') {
+      settings.cursorApiKey = apiKey;
+      settings.apiKey = apiKey;
+    } else if (KEY_REQUIRED_PROVIDERS.includes(provider)) {
+      settings.apiKeys = { [provider]: apiKey };
+      settings.apiKey = apiKey;
+    }
+  }
+  return settings;
+}
+
 function autoLoadModels(provider, endpoint, options = {}) {
   const allowPrompt = options.allowPrompt !== false;
   const scope = options.scope || '';
   
-  const settings = { provider, endpoint: endpoint || '', scope };
+  const settings = buildListModelsSettings(provider, endpoint, scope);
   
   if (provider === 'nexql-free') {
     vscode.postMessage({ command: 'ai/listModels', settings });
@@ -2414,7 +2429,7 @@ function handlePrefsMessage(message) {
       }
       const toolProfileEl = $('prefMcpToolProfile');
       if (toolProfileEl) {
-        toolProfileEl.value = message.prefs.mcpToolProfile || 'meta';
+        toolProfileEl.value = message.prefs.mcpToolProfile || 'full';
       }
       
       const mcpEnabled = !!message.prefs.mcpEnabled;
@@ -2442,15 +2457,47 @@ function handlePrefsMessage(message) {
         if (installHelp) {
           installHelp.hidden = !!message.prefs.mcpStarted;
         }
-        applyMcpInstallButtonOrder(message.prefs.mcpOsPlatform);
+        applyMcpInstallButtonOrder();
         const detectBtn = $('mcpDetectBtn');
         if (detectBtn) {
           detectBtn.disabled = false;
           detectBtn.textContent = 'Detect';
         }
+        const updateDetectBtn = $('mcpUpdateDetectBtn');
+        if (updateDetectBtn) {
+          updateDetectBtn.disabled = false;
+          updateDetectBtn.textContent = 'Re-check installed version';
+        }
         const restartBanner = $('mcpRestartRequired');
         if (restartBanner) {
           restartBanner.hidden = !message.prefs.mcpRestartRequired;
+        }
+        const checkUpdateBtn = $('mcpCheckUpdateBtn');
+        if (checkUpdateBtn) {
+          checkUpdateBtn.disabled = false;
+          checkUpdateBtn.textContent = 'Check for update';
+        }
+        const updateBanner = $('mcpUpdateBanner');
+        if (updateBanner) {
+          if (message.prefs.mcpUpdateAvailable && message.prefs.mcpLatestVersion) {
+            updateBanner.hidden = false;
+            const bannerText = $('mcpUpdateBannerText');
+            if (bannerText) {
+              bannerText.textContent = `${message.prefs.mcpVersion || 'installed'} → ${message.prefs.mcpLatestVersion} is available.`;
+            }
+            const curlDetails = $('mcpUpdateCurlDetails');
+            const curlCmd = $('mcpUpdateCurlCmd');
+            if (curlDetails && curlCmd) {
+              if (message.prefs.mcpUpdateCurlCommand) {
+                curlDetails.hidden = false;
+                curlCmd.textContent = message.prefs.mcpUpdateCurlCommand;
+              } else {
+                curlDetails.hidden = true;
+              }
+            }
+          } else {
+            updateBanner.hidden = true;
+          }
         }
         const resolvedEl = $('mcpBinaryResolved');
         const sourceEl = $('mcpBinarySource');
@@ -2499,6 +2546,11 @@ function handlePrefsMessage(message) {
         btn.disabled = true;
         btn.textContent = 'Detecting…';
       }
+      const updateDetectBtn = $('mcpUpdateDetectBtn');
+      if (updateDetectBtn) {
+        updateDetectBtn.disabled = true;
+        updateDetectBtn.textContent = 'Detecting…';
+      }
       break;
     }
   }
@@ -2508,32 +2560,29 @@ function handlePrefsMessage(message) {
 // system Node installs where the global prefix is root-owned (not on
 // nvm/Homebrew Node). Lead with cargo on macOS/Linux, npm on Windows (where
 // npm ships a .cmd shim and is the more common install path).
-function applyMcpInstallButtonOrder(osPlatform) {
-  const npmBtn = $('mcpInstallNpmBtn');
-  const cargoBtn = $('mcpInstallCargoBtn');
+// npm is the recommended path on every OS — works wherever Node/npm is
+// installed, no separate Rust toolchain. Cargo stays as the no-Node fallback.
+function orderNpmCargoButtons(npmBtn, cargoBtn) {
   const container = npmBtn && npmBtn.parentElement;
   if (!npmBtn || !cargoBtn || !container) return;
-
-  const order = osPlatform === 'win32' ? 'npm' : 'cargo';
-  if (container.dataset.mcpOrder === order) return; // already arranged
-  container.dataset.mcpOrder = order;
-
-  if (order === 'npm') {
-    container.insertBefore(npmBtn, cargoBtn);
-    npmBtn.className = 'btn-primary';
-    cargoBtn.className = 'btn-secondary';
-    npmBtn.title = '';
-  } else {
-    container.insertBefore(cargoBtn, npmBtn);
-    cargoBtn.className = 'btn-primary';
-    npmBtn.className = 'btn-secondary';
-    npmBtn.title = 'May require sudo if Node was installed via a system package manager (apt, etc). nvm/Homebrew Node installs do not.';
-  }
+  if (container.dataset.mcpOrder === 'npm') return; // already arranged
+  container.dataset.mcpOrder = 'npm';
+  container.insertBefore(npmBtn, cargoBtn);
+  npmBtn.className = 'btn-primary';
+  cargoBtn.className = 'btn-secondary';
+  npmBtn.title = 'May require sudo if Node was installed via a system package manager (apt, etc). nvm/Homebrew Node installs do not.';
 }
 
-// MCP install buttons — open a terminal with the install command, or
-// re-probe PATH + re-resolve the binary in-session (no reload).
-['mcpInstallNpmBtn', 'mcpInstallCargoBtn'].forEach((id) => {
+function applyMcpInstallButtonOrder() {
+  orderNpmCargoButtons($('mcpInstallNpmBtn'), $('mcpInstallCargoBtn'));
+  orderNpmCargoButtons($('mcpUpdateNpmBtn'), $('mcpUpdateCargoBtn'));
+}
+
+// MCP install/update buttons — both just open a terminal with the same
+// npm/cargo command (re-running `install -g` / `cargo install` upgrades an
+// existing install to latest), or re-probe PATH + re-resolve the binary
+// in-session (no reload).
+['mcpInstallNpmBtn', 'mcpInstallCargoBtn', 'mcpUpdateNpmBtn', 'mcpUpdateCargoBtn'].forEach((id) => {
   const btn = $(id);
   if (!btn) return;
   btn.addEventListener('click', () => {
@@ -2544,6 +2593,22 @@ const mcpDetectBtnEl = $('mcpDetectBtn');
 if (mcpDetectBtnEl) {
   mcpDetectBtnEl.addEventListener('click', () => {
     vscode.postMessage({ command: 'prefs/mcpDetect' });
+  });
+}
+// Same re-probe as mcpDetectBtn above, just surfaced in the update banner —
+// this is what confirms an npm/cargo/curl update actually landed.
+const mcpUpdateDetectBtnEl = $('mcpUpdateDetectBtn');
+if (mcpUpdateDetectBtnEl) {
+  mcpUpdateDetectBtnEl.addEventListener('click', () => {
+    vscode.postMessage({ command: 'prefs/mcpDetect' });
+  });
+}
+const mcpCheckUpdateBtnEl = $('mcpCheckUpdateBtn');
+if (mcpCheckUpdateBtnEl) {
+  mcpCheckUpdateBtnEl.addEventListener('click', () => {
+    mcpCheckUpdateBtnEl.disabled = true;
+    mcpCheckUpdateBtnEl.textContent = 'Checking…';
+    vscode.postMessage({ command: 'prefs/mcpCheckUpdate' });
   });
 }
 

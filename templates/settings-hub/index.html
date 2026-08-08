@@ -821,7 +821,7 @@
                 <strong style="display: block; margin-bottom: 4px;">Install nexql-mcp</strong>
                 <p style="font-size: 0.85em; color: var(--vscode-descriptionForeground); margin: 0 0 10px;">Binary not found on PATH. Install once, then hit Detect — no window reload needed.</p>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                  <button type="button" id="mcpInstallNpmBtn" class="btn-primary" data-method="npm">Install via npm (Terminal)</button>
+                  <button type="button" id="mcpInstallNpmBtn" class="btn-primary" data-method="npm">Install via npm (Terminal) <span class="hub-badge" style="margin-left: 4px; background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success);">Recommended</span></button>
                   <button type="button" id="mcpInstallCargoBtn" class="btn-secondary" data-method="cargo">Install via cargo (Terminal)</button>
                   <button type="button" id="mcpDetectBtn" class="btn-secondary">Detect</button>
                 </div>
@@ -844,6 +844,23 @@ npx -y nexql-mcp postgres://dev@localhost:5432/appdb
                 <div class="mcp-status-row" style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
                   <span class="mcp-status-dot" id="mcpStatusDot" style="width: 8px; height: 8px; border-radius: 50%; display: inline-block;"></span>
                   <span id="mcpStatusText" style="font-weight: 500;">Connecting...</span>
+                  <button type="button" id="mcpCheckUpdateBtn" class="btn-secondary" style="margin-left: auto; font-size: 0.8em; padding: 2px 8px;">Check for update</button>
+                </div>
+
+                <!-- Shown when the resolved binary is older than the latest npm release. -->
+                <div id="mcpUpdateBanner" hidden style="margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 35%, var(--vscode-widget-border)); background: color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 8%, transparent); font-size: 0.9em;">
+                  <strong style="display: block; margin-bottom: 4px;">nexql-mcp update available</strong>
+                  <span id="mcpUpdateBannerText" style="color: var(--vscode-descriptionForeground);"></span>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px;">
+                    <button type="button" id="mcpUpdateNpmBtn" class="btn-primary" data-method="npm">Update via npm (Terminal) <span class="hub-badge" style="margin-left: 4px; background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success);">Recommended</span></button>
+                    <button type="button" id="mcpUpdateCargoBtn" class="btn-secondary" data-method="cargo">Update via cargo (Terminal)</button>
+                    <button type="button" id="mcpUpdateDetectBtn" class="btn-secondary">Re-check installed version</button>
+                  </div>
+                  <p style="font-size: 0.8em; color: var(--vscode-descriptionForeground); margin: 6px 0 0;">After installing (or downloading via curl below), click "Re-check installed version" to re-probe PATH and pick up the new binary — no window reload needed.</p>
+                  <details id="mcpUpdateCurlDetails" hidden style="font-size: 0.85em; margin-top: 10px;">
+                    <summary style="cursor: pointer; color: var(--vscode-descriptionForeground);">Or download directly from GitHub Releases</summary>
+                    <pre style="margin: 8px 0 0; padding: 12px; background: color-mix(in srgb, var(--pg-ui-surface) 60%, var(--vscode-editor-background)); border-radius: 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; overflow-x: auto; border: 1px solid var(--vscode-widget-border); white-space: pre-wrap; word-break: break-all;"><code id="mcpUpdateCurlCmd">-</code></pre>
+                  </details>
                 </div>
 
                 <div id="mcpSkippedConnections" hidden style="margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--vscode-charts-orange, #e57373) 35%, var(--vscode-widget-border)); background: color-mix(in srgb, var(--vscode-charts-orange, #e57373) 8%, transparent); font-size: 0.9em;">

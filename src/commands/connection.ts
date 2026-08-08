@@ -16,6 +16,7 @@ export function createMetadata(connection: any, databaseName: string | undefined
     // Create the base metadata object
     const metadata = {
         connectionId: connection.id,
+        name: connection.name,
         databaseName: databaseName,
         host: connection.host,
         port: connection.port,

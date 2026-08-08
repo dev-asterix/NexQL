@@ -29,7 +29,11 @@ export class ConnectionUtils {
   }
 
   /** Find a connection by ID or by metadata fallback (e.g. host, port, username, or single connection) */
-  static findConnectionWithFallback(connectionId: string | undefined, metadata?: any): any | undefined {
+  static findConnectionWithFallback(
+    connectionId: string | undefined,
+    metadata?: any,
+    options?: { allowSingleConnectionFallback?: boolean },
+  ): any | undefined {
     const connections = this.getConnections();
     if (connections.length === 0) return undefined;
 
@@ -63,8 +67,8 @@ export class ConnectionUtils {
       }
     }
 
-    // Fallback C: If there is exactly one configured connection, use it
-    if (connections.length === 1) {
+    // Fallback C: If there is exactly one configured connection, use it (opt-in only)
+    if (options?.allowSingleConnectionFallback && connections.length === 1) {
       return connections[0];
     }
 

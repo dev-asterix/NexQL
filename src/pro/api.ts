@@ -62,6 +62,10 @@ export interface McpServerStatus {
   configPath?: string;
   binarySource?: string;
   version?: string;
+  /** Latest `nexql-mcp` version published to npm, when known (best-effort, may be stale/undefined offline). */
+  latestVersion?: string;
+  /** True when `latestVersion` is a confirmed newer release than `version`. */
+  updateAvailable?: boolean;
   /** Legacy HTTP fields — unused after Phase 7 stdio cutover. */
   port?: number;
   token?: string;
@@ -76,6 +80,12 @@ export interface McpServerStatus {
 export interface IMcpServer {
   start(): Promise<McpServerStatus>;
   restart(): Promise<McpServerStatus>;
+  /**
+   * Re-checks the npm registry for a newer `nexql-mcp` release and updates
+   * `info.latestVersion`/`info.updateAvailable`. `force` bypasses the cache
+   * (used by the Settings page's manual "Check for update" button).
+   */
+  checkForUpdate?(force?: boolean): Promise<McpServerStatus>;
   /** Drop the ephemeral profile and signal that MCP clients must reconnect. */
   invalidate(): void;
   getStdioLaunch(options?: { managedExtension?: boolean }): McpLaunchDescriptor;

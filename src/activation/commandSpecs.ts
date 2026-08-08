@@ -298,6 +298,34 @@ export function getCommandSpecs(
           return;
         }
 
+        let selectedDatabase = selectedConnection.connection.database || 'postgres';
+        try {
+          const databases = await ConnectionUtils.listDatabases(selectedConnection.connection);
+          if (databases.length > 1) {
+            const dbPick = await vscode.window.showQuickPick(
+              databases.map((db) => ({ label: db, database: db })),
+              {
+                placeHolder: 'Select database for this query',
+                title: 'Generate Query — Select Database',
+                ignoreFocusOut: true,
+              }
+            );
+            if (!dbPick) {
+              return;
+            }
+            selectedDatabase = dbPick.database;
+          } else if (databases.length === 1) {
+            selectedDatabase = databases[0];
+          }
+        } catch {
+          // Fall back to connection default database.
+        }
+
+        chatViewProviderInstance.setConnectionContext?.(
+          selectedConnection.connection.id,
+          selectedDatabase
+        );
+
         // Step 3: Fetch database objects (tables, views, functions)
         try {
           const dbObjects = await databaseTreeProvider.getDbObjectsForConnection(selectedConnection.connection);
@@ -312,7 +340,12 @@ export function getCommandSpecs(
 
             if (input) {
               await vscode.commands.executeCommand('postgresExplorer.chatView.focus');
-              await chatViewProviderInstance.handleGenerateQuery(input);
+              await chatViewProviderInstance.handleGenerateQuery(
+                input,
+                undefined,
+                selectedConnection.connection.id,
+                selectedDatabase
+              );
             }
             return;
           }
@@ -354,7 +387,12 @@ export function getCommandSpecs(
 
             // Send to AI with schema context
             const schemaContext = selectedObjects ? selectedObjects.map(item => item.object) : undefined;
-            await chatViewProviderInstance.handleGenerateQuery(input, schemaContext);
+            await chatViewProviderInstance.handleGenerateQuery(
+              input,
+              schemaContext,
+              selectedConnection.connection.id,
+              selectedDatabase
+            );
           }
         } catch (error: any) {
           vscode.window.showErrorMessage(`Failed to fetch database objects: ${error.message}`);
