@@ -59,6 +59,13 @@ export class PostgresKernel implements vscode.Disposable {
 
     this._executor = new SqlExecutor(this._controller, this.messaging);
 
+    this._controller.interruptHandler = async (notebook) => {
+      const cellUri = SqlExecutor.getExecutingCellUri(notebook.uri.toString());
+      if (cellUri) {
+        await SqlExecutor.cancelInFlightForCell(cellUri);
+      }
+    };
+
     // Register language providers once across all kernel instances
     if (!PostgresKernel._languageProvidersRegistered) {
       PostgresKernel._languageProvidersRegistered = true;

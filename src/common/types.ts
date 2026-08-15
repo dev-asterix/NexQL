@@ -267,7 +267,7 @@ export interface SortState {
   direction: 'asc' | 'desc' | 'none';
 }
 
-export type FilterOperator = 'contains' | 'equals' | 'startsWith' | 'endsWith';
+export type FilterOperator = 'contains' | 'equals' | 'notEquals' | 'startsWith' | 'endsWith';
 
 export interface FilterClause {
   id: string;

@@ -7,6 +7,43 @@ Quick links:
 
 ---
 
+## [2.5.1] - 2026-08-15
+
+> Nightly pre-release patch — daily-workflow QoL and query-cancel fixes.
+
+### ⚡ Query execution & cancel
+
+- **Stop / Cancel** — Notebook stop, TopBar cancel, and `postgres-explorer.cancelQuery` now cancel the active backend via PostgreSQL wire cancel (`CancelRequest`) with `pg_cancel_backend` fallback; in-flight state is shared across notebook kernels.
+- **Sliding-window guardrails** — Scalar/volatile `SELECT`s (`pg_sleep`, advisory locks, etc.) and queries without `FROM` no longer enter the server-side cursor path, so cancel is not blocked by nested `COUNT` wrappers or cursor `FETCH`.
+
+### ⌨️ Keyboard & commands
+
+- **Keybindings** — Run advance, run to here, cancel query, switch database, query history, saved queries, and full-dataset toggle; `Ctrl+Shift+B` / `Ctrl+Shift+O` scoped so they no longer fire outside NexQL notebooks.
+- **Command palette** — Uncategorized commands assigned to categories for faster discovery.
+
+### 📓 Notebooks & SQL workflow
+
+- **Query history** — Pin entries, search, Quick Pick launcher, and a pinned section in the history tree.
+- **Saved queries** — Search matches SQL and tags; open paths route through the notebook editor.
+- **Named cells** — `@cell` references with temp-table materialization across cells.
+- **Declared parameters** — `-- @param` block parsing; optional rewrite-on-prompt gated by `postgresExplorer.parameters.rewriteCellOnPrompt` (default off).
+- **Cell metadata** — `lastRun` and NexQL cell metadata round-trip through the notebook serializer.
+
+### 📊 Results & export
+
+- **Result grid** — `Ctrl+C` cell copy, context-menu filter / exclude / add-to-WHERE, and FK “show referencing rows”.
+- **Excel export** — Available from the result export menu (alongside CSV/JSON).
+
+### 🤖 Pro (when `packages/pro` is linked)
+
+- **DbIndex autocomplete** — Semantic/schema index hits surface in SQL completion via the `CompletionCandidateSource` seam (Sponsor gate).
+
+### Fixed
+
+- **Import path** — `DbIndexCompletionSource` pro typecheck resolves core modules correctly (`../../../../../src/…`).
+
+---
+
 ## [2.5.0] - 2026-08-08
 
 > Nightly pre-release — same feature set as [v2.4.0](#240---2026-08-08).

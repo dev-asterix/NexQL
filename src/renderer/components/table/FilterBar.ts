@@ -22,6 +22,7 @@ export interface FilterBarOptions {
 const OPERATOR_LABELS: Record<FilterOperator, string> = {
   contains: 'contains',
   equals: 'equals',
+  notEquals: 'not equals',
   startsWith: 'starts with',
   endsWith: 'ends with',
 };
@@ -497,6 +498,9 @@ export class FilterBar {
         switch (clause.operator) {
           case 'equals':
             if (left !== right) { return false; }
+            break;
+          case 'notEquals':
+            if (left === right) { return false; }
             break;
           case 'contains':
             if (!left.includes(right)) { return false; }

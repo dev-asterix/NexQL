@@ -44,6 +44,9 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+/** Volatile/scalar functions that must never run under DECLARE CURSOR or COUNT wrappers. */
+const SLIDING_WINDOW_BLOCKED = /\b(pg_sleep|pg_advisory_lock|pg_advisory_xact_lock|set_config)\s*\(/i;
+
 export class ResultCursorService {
   private static sessions = new Map<string, SessionRecord>();
 
@@ -66,6 +69,14 @@ export class ResultCursorService {
     if (/^\s*EXPLAIN\b/i.test(clean)) {
       return false;
     }
+    if (SLIDING_WINDOW_BLOCKED.test(clean)) {
+      return false;
+    }
+    // Sliding window needs a rowset from a relation scan. Scalar/volatile SELECTs
+    // (pg_sleep, set_config, etc.) have no FROM and must not use DECLARE CURSOR.
+    if (!/\bFROM\b/i.test(clean)) {
+      return false;
+    }
     if (/^\s*SELECT\b/i.test(clean)) {
       return true;
     }
@@ -81,6 +92,11 @@ export class ResultCursorService {
     return false;
   }
 
+  private static isQueryCancelledError(err: unknown): boolean {
+    const code = (err as { code?: string })?.code;
+    return code === '57014';
+  }
+
   /**
    * Closes sliding sessions previously opened for the same cell output (before re-run).
    */
@@ -93,6 +109,22 @@ export class ResultCursorService {
     }
     for (const id of toClose) {
       void ResultCursorService.closeSession(id);
+    }
+  }
+
+  /**
+   * Drop in-memory cursor sessions without issuing CLOSE on the session client.
+   * Use during cancel while the client is busy executing a query.
+   */
+  public static dropSessionsForCellUri(cellUri: string): void {
+    for (const [id, s] of ResultCursorService.sessions) {
+      if (s.cellUri !== cellUri) {
+        continue;
+      }
+      if (s.idleTimer) {
+        clearTimeout(s.idleTimer);
+      }
+      ResultCursorService.sessions.delete(id);
     }
   }
 
@@ -143,6 +175,11 @@ export class ResultCursorService {
     fields: Array<{ name: string; dataTypeID: number }>;
   } | null> {
     const innerSql = stripTrailingSemicolon(options.sql.trim());
+    if (!ResultCursorService.isEligibleQuery(innerSql)) {
+      debugLog('[ResultCursorService] tryOpenSession skipped: query not eligible for sliding window');
+      return null;
+    }
+
     const cursorName = `nexql_sw_${randomUUID().replace(/-/g, '')}`;
     const cursorQuoted = quoteIdent(cursorName);
     const { client, inTransaction, windowSize } = options;
@@ -177,53 +214,58 @@ export class ResultCursorService {
       });
       ResultCursorService.refreshIdleTimer(sessionId);
 
+      const innerSqlClean = stripSqlComments(innerSql);
+      const canEstimateRowCount = /\bFROM\b/i.test(innerSqlClean);
+
       // Attempt to estimate total rows for UI (best-effort; errors ignored).
       // A short statement_timeout prevents this nested COUNT from hanging a pool connection
       // on tables with millions of records or complex joins.
       const COUNT_TIMEOUT_MS = 1000;
       const countStartTime = Date.now();
       let sessionRecord = ResultCursorService.sessions.get(sessionId);
-      if (sessionRecord) sessionRecord.countAttempted = true;
-
       let countSql: string | undefined;
-      try {
-        debugLog(`[ResultCursorService] Starting row count (timeout ${COUNT_TIMEOUT_MS}ms) for session ${sessionId.substring(0, 8)}`);
-        // Strip comments from inner SQL to avoid syntax errors in wrapped COUNT query
-        const innerSqlClean = stripSqlComments(innerSql);
-        countSql = `SELECT COUNT(*) AS cnt FROM (${innerSqlClean}) AS nexql_count`;
-        debugLog(`[ResultCursorService] COUNT query: ${countSql.substring(0, 120)}...`);
 
-        // Apply a tight timeout only for the count query; reset it immediately after.
-        await client.query(`SET statement_timeout = ${COUNT_TIMEOUT_MS}`);
+      if (canEstimateRowCount) {
+        if (sessionRecord) {
+          sessionRecord.countAttempted = true;
+        }
         try {
-          const cres = await client.query(countSql);
+          debugLog(`[ResultCursorService] Starting row count (timeout ${COUNT_TIMEOUT_MS}ms) for session ${sessionId.substring(0, 8)}`);
+          countSql = `SELECT COUNT(*) AS cnt FROM (${innerSqlClean}) AS nexql_count`;
+          debugLog(`[ResultCursorService] COUNT query: ${countSql.substring(0, 120)}...`);
+
+          // Apply a tight timeout only for the count query; reset it immediately after.
+          await client.query(`SET statement_timeout = ${COUNT_TIMEOUT_MS}`);
+          try {
+            const cres = await client.query(countSql);
+            const countDuration = Date.now() - countStartTime;
+
+            const cntVal = cres?.rows?.[0]?.cnt ?? cres?.rows?.[0]?.count;
+            const n = cntVal !== undefined && cntVal !== null ? Number(cntVal) : undefined;
+
+            sessionRecord = ResultCursorService.sessions.get(sessionId);
+            if (sessionRecord) {
+              sessionRecord.totalRows = Number.isFinite(n) ? n : undefined;
+              debugLog(`[ResultCursorService] Row count succeeded: ${sessionRecord.totalRows} rows (${countDuration}ms) for session ${sessionId.substring(0, 8)}`);
+            }
+          } finally {
+            // Always reset the statement_timeout so subsequent queries are unaffected.
+            await client.query('RESET statement_timeout').catch(() => {});
+          }
+        } catch (e) {
           const countDuration = Date.now() - countStartTime;
-
-          const cntVal = cres?.rows?.[0]?.cnt ?? cres?.rows?.[0]?.count;
-          const n = cntVal !== undefined && cntVal !== null ? Number(cntVal) : undefined;
-
+          const errorMsg = e instanceof Error ? e.message : String(e);
           sessionRecord = ResultCursorService.sessions.get(sessionId);
           if (sessionRecord) {
-            sessionRecord.totalRows = Number.isFinite(n) ? n : undefined;
-            debugLog(`[ResultCursorService] Row count succeeded: ${sessionRecord.totalRows} rows (${countDuration}ms) for session ${sessionId.substring(0, 8)}`);
+            sessionRecord.countError = errorMsg;
+            const queryPreview = countSql ? countSql.substring(0, 150) : 'unknown';
+            debugWarn(
+              `[ResultCursorService] Row count failed after ${countDuration}ms for session ${sessionId.substring(0, 8)}:\n` +
+              `  Error: ${errorMsg}\n` +
+              `  Query: ${queryPreview}...`,
+              e instanceof Error ? e.stack : ''
+            );
           }
-        } finally {
-          // Always reset the statement_timeout so subsequent queries are unaffected.
-          await client.query('RESET statement_timeout').catch(() => {});
-        }
-      } catch (e) {
-        const countDuration = Date.now() - countStartTime;
-        const errorMsg = e instanceof Error ? e.message : String(e);
-        sessionRecord = ResultCursorService.sessions.get(sessionId);
-        if (sessionRecord) {
-          sessionRecord.countError = errorMsg;
-          const queryPreview = countSql ? countSql.substring(0, 150) : 'unknown';
-          debugWarn(
-            `[ResultCursorService] Row count failed after ${countDuration}ms for session ${sessionId.substring(0, 8)}:\n` +
-            `  Error: ${errorMsg}\n` +
-            `  Query: ${queryPreview}...`,
-            e instanceof Error ? e.stack : ''
-          );
         }
       }
 
@@ -231,6 +273,10 @@ export class ResultCursorService {
       try {
         page = await ResultCursorService.fetchWindowInternal(sessionId, 1);
       } catch (e) {
+        if (ResultCursorService.isQueryCancelledError(e)) {
+          await ResultCursorService.closeSession(sessionId);
+          throw e;
+        }
         debugWarn('[ResultCursorService] first FETCH failed:', e);
         await ResultCursorService.closeSession(sessionId);
         return null;
@@ -264,6 +310,13 @@ export class ResultCursorService {
         },
       };
     } catch (e) {
+      if (ResultCursorService.isQueryCancelledError(e)) {
+        if (beganOwnReadOnlyTx) {
+          await client.query('ROLLBACK').catch(() => {});
+        }
+        await ResultCursorService.closeSession(sessionId).catch(() => {});
+        throw e;
+      }
       debugWarn('[ResultCursorService] tryOpenSession failed, falling back to buffered query:', e);
       if (beganOwnReadOnlyTx) {
         await client.query('ROLLBACK').catch(() => {});

@@ -576,4 +576,74 @@ export class SqlParser {
     }
     return raw;
   }
+
+  /** Parse `-- nexql:name foo` directive from cell SQL. */
+  public static parseCellNameDirective(sql: string): string | undefined {
+    const match = /^\s*--\s*nexql:name\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*$/im.exec(sql);
+    return match?.[1];
+  }
+
+  public static resolveCellName(metadataName: string | undefined, sql: string): string | undefined {
+    const fromMeta = metadataName?.trim();
+    if (fromMeta) {
+      return fromMeta;
+    }
+    return SqlParser.parseCellNameDirective(sql);
+  }
+
+  public static sanitizeCellTableName(name: string): string {
+    return `nexql_${name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()}`;
+  }
+
+  public static detectCellReferences(sql: string): string[] {
+    const refs = new Set<string>();
+    const re = /@([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(sql)) !== null) {
+      refs.add(match[1]);
+    }
+    return Array.from(refs);
+  }
+
+  public static rewriteCellReferences(sql: string, tableByName: Record<string, string>): string {
+    return sql.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (_full, name: string) => {
+      const table = tableByName[name];
+      if (!table) {
+        throw new Error(`Unresolved cell reference @${name}. Run the named cell first.`);
+      }
+      return table;
+    });
+  }
+
+  public static parseDeclaredParamsBlock(sql: string): Array<{ name: string; type: string; defaultValue?: string; choices?: string[] }> {
+    const lines = sql.split('\n');
+    const params: Array<{ name: string; type: string; defaultValue?: string; choices?: string[] }> = [];
+    let inBlock = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('--')) {
+        if (inBlock) break;
+        continue;
+      }
+      if (/^--\s*nexql:params\s*$/i.test(trimmed)) {
+        inBlock = true;
+        continue;
+      }
+      if (!inBlock) continue;
+      const paramMatch = /^--\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^:]+?)(?::\s*(.+))?\s*$/.exec(trimmed);
+      if (!paramMatch) continue;
+      const [, name, type, rest] = paramMatch;
+      const defaultPart = rest?.trim();
+      let defaultValue: string | undefined;
+      let choices: string[] | undefined;
+      if (defaultPart?.includes('|')) {
+        choices = defaultPart.split('|').map((c) => c.trim());
+        defaultValue = choices[0];
+      } else if (defaultPart) {
+        defaultValue = defaultPart;
+      }
+      params.push({ name, type: type.trim(), defaultValue, choices });
+    }
+    return params;
+  }
 }

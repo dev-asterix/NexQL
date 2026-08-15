@@ -1,8 +1,8 @@
 import type { ActivationFunction } from 'vscode-notebook-renderer';
 import type { ChartRenderer } from '../../../renderer/components/chart/ChartRenderer';
 import { isProBuild } from '../../../common/buildTier';
+import { WEBVIEW_MESSAGE_TYPES } from '../../../common/messageTypes';
 import {
-  createExportButton,
   positionExportDropdown,
   setExportToolbarButtonLabel,
   EXPORT_MENU_Z_INDEX,
@@ -611,7 +611,7 @@ export function renderPostgresNotebookResult(
       }
 
       // Build the hidden export button to reuse its existing dropdown flow
-      const exportBtn = createExportButton(columns, currentRows, tableInfo, context, query);
+      const exportBtn = document.createElement('button');
       exportBtn.style.display = 'none';
 
       const gridPrefRequestId = `gcp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -659,7 +659,7 @@ export function renderPostgresNotebookResult(
         };
 
         const postExport = (
-          format: 'csv' | 'json' | 'markdown' | 'clipboard' | 'sqlinsert',
+          format: 'csv' | 'json' | 'markdown' | 'clipboard' | 'sqlinsert' | 'excel',
         ): void => {
           context.postMessage?.({
             type: 'export_request',
@@ -672,6 +672,7 @@ export function renderPostgresNotebookResult(
         };
 
         addItem('Save as CSV', () => postExport('csv'));
+        addItem('Save as Excel', () => postExport('excel'));
         addItem('Save as JSON', () => postExport('json'));
         addItem('Save as Markdown', () => postExport('markdown'));
         addItem('Copy to Clipboard', () => {
@@ -1216,6 +1217,13 @@ export function renderPostgresNotebookResult(
             clauses: state.clauses.map((c) => ({ ...c })),
           };
           refreshStreamingScopeNotice();
+        },
+        onRunDerivedQuery: (sql) => {
+          context.postMessage?.({
+            type: WEBVIEW_MESSAGE_TYPES.RUN_DERIVED_QUERY,
+            query: sql,
+            mode: 'insert',
+          });
         },
       });
 

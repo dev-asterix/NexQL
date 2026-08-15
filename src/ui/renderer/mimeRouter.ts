@@ -9,6 +9,14 @@ import { renderPostgresNotebookResult } from './queryResult/renderQueryResult';
 
 const HEADER_MIME = 'application/x-postgres-notebook-header+json';
 
+interface ExecutionStatePayload {
+  isExecuting: boolean;
+  backendPid: number | null;
+  connectionId: string;
+  databaseName: string;
+  cellUri: string;
+}
+
 function payloadToTopBarOptions(payload: SentinelNotebookHeaderPayload): TopBarOptions {
   return {
     connectionName: payload.connectionName,
@@ -31,6 +39,7 @@ function renderNotebookHeader(
   context: RendererContext<void>,
   payload: SentinelNotebookHeaderPayload,
   element: HTMLElement,
+  executionState?: ExecutionStatePayload,
 ): void {
   element.replaceChildren();
 
@@ -43,26 +52,52 @@ function renderNotebookHeader(
   };
 
   const options = payloadToTopBarOptions(payload);
+  options.isExecuting = executionState?.isExecuting ?? false;
   options.onRunAll = () => postMessage({ type: 'runAll' });
   options.onClearOutputs = () => postMessage({ type: 'clearOutputs' });
   options.onAddCodeCell = () => postMessage({ type: 'addCodeCell' });
   options.onAddMarkdownCell = () => postMessage({ type: 'addMarkdownCell' });
+  if (executionState?.isExecuting) {
+    options.onCancel = () => {
+      postMessage({
+        type: 'cancel_query',
+        backendPid: executionState.backendPid,
+        connectionId: executionState.connectionId,
+        databaseName: executionState.databaseName,
+        cellUri: executionState.cellUri,
+      });
+    };
+  }
 
   element.appendChild(createTopBar(options, postMessage));
 }
 
 export const activate: ActivationFunction = (context) => {
   let headerElement: HTMLElement | undefined;
+  let lastHeaderPayload: SentinelNotebookHeaderPayload | undefined;
+  let lastExecutionState: ExecutionStatePayload | undefined;
 
   context.onDidReceiveMessage?.((message: unknown) => {
-    if (
-      typeof message === 'object'
-      && message !== null
-      && (message as { type?: string }).type === 'sentinel/header'
-      && headerElement
-    ) {
-      const payload = (message as { payload: SentinelNotebookHeaderPayload }).payload;
-      renderNotebookHeader(context, payload, headerElement);
+    if (typeof message !== 'object' || message === null) {
+      return;
+    }
+    const typed = message as { type?: string; payload?: SentinelNotebookHeaderPayload } & ExecutionStatePayload;
+
+    if (typed.type === 'executionState' && headerElement && lastHeaderPayload) {
+      lastExecutionState = {
+        isExecuting: typed.isExecuting,
+        backendPid: typed.backendPid,
+        connectionId: typed.connectionId,
+        databaseName: typed.databaseName,
+        cellUri: typed.cellUri,
+      };
+      renderNotebookHeader(context, lastHeaderPayload, headerElement, lastExecutionState);
+      return;
+    }
+
+    if (typed.type === 'sentinel/header' && headerElement) {
+      lastHeaderPayload = typed.payload;
+      renderNotebookHeader(context, lastHeaderPayload!, headerElement, lastExecutionState);
     }
   });
 
@@ -71,7 +106,8 @@ export const activate: ActivationFunction = (context) => {
       if (data.mime === HEADER_MIME) {
         const payload = data.json() as SentinelNotebookHeaderPayload;
         headerElement = element;
-        renderNotebookHeader(context, payload, element);
+        lastHeaderPayload = payload;
+        renderNotebookHeader(context, payload, element, lastExecutionState);
         return;
       }
 

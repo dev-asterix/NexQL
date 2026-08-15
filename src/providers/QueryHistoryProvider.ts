@@ -91,7 +91,12 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<HistoryNode
     try {
       const history = QueryHistoryService.getInstance().getHistory();
       const trendGroup = this.buildTrendGroup();
-      return [trendGroup, ...this.groupHistory(history)];
+      const pinned = QueryHistoryService.getInstance().getPinned();
+      const pinnedGroup =
+        pinned.length > 0
+          ? [{ type: 'group' as const, label: 'Pinned', items: pinned }]
+          : [];
+      return [...pinnedGroup, trendGroup, ...this.groupHistory(history)];
     } catch (e) {
       return [];
     }
@@ -110,6 +115,8 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<HistoryNode
   }
 
   private groupHistory(items: QueryHistoryItem[]): HistoryGroup[] {
+    const pinnedIds = new Set(QueryHistoryService.getInstance().getPinned().map((p) => p.id));
+    const unpinned = items.filter((item) => !pinnedIds.has(item.id));
     const groups: HistoryGroup[] = [];
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -127,7 +134,7 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<HistoryNode
     // For year-wise grouping
     const yearBuckets: { [year: string]: QueryHistoryItem[] } = {};
 
-    items.forEach(item => {
+    unpinned.forEach(item => {
       // Handle missing timestamp safely
       const ts = item.timestamp || 0;
 

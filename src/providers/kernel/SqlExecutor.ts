@@ -32,6 +32,7 @@ import { FullDatasetPreferenceService } from '../../services/FullDatasetPreferen
 import { ConnectionUtils } from '../../utils/connectionUtils';
 import { AuditLogService } from '../../features/audit/AuditLogService';
 import { getSchemaCache } from '../../lib/schema-cache';
+import type { NexqlCellMetadata } from '../../features/notebook/cellMetadata';
 
 /** Streaming NOTICE feed during a single-statement cell run (replaced by final result output). */
 const MIME_NOTICES_LIVE = 'application/vnd.postgres-notebook.notices-live';
@@ -58,12 +59,26 @@ interface NotebookParameterQuickPickItem extends vscode.QuickPickItem {
   value: string;
 }
 
+interface InFlightExecution {
+  backendPid: number | null;
+  connectionId: string;
+  databaseName: string;
+  cancelled: boolean;
+  client?: import('pg').Client;
+}
+
 export class SqlExecutor {
   private static readonly REVIEW_COUNT_KEY = 'postgresExplorer.reviewPrompt.successCount';
   private static readonly REVIEW_SHOWN_KEY = 'postgresExplorer.reviewPrompt.shown';
   private static readonly REVIEW_THRESHOLD = 3;
 
+  /** Shared across notebook/query kernels so cancel works from any handler. */
+  private static readonly inFlight = new Map<string, InFlightExecution>();
+  private static readonly executingCellByNotebook = new Map<string, string>();
+
   private readonly _messaging?: vscode.NotebookRendererMessaging;
+  /** notebookUri → cellName → temp table name for named-cell reuse */
+  private readonly namedCellTables = new Map<string, Map<string, string>>();
 
   constructor(
     private readonly _controller: vscode.NotebookController,
@@ -507,6 +522,12 @@ export class SqlExecutor {
     commentDefined: Map<number | string, string | null>,
     kind: 'positional' | 'named'
   ): Promise<void> {
+    const rewriteEnabled = vscode.workspace
+      .getConfiguration('postgresExplorer.parameters')
+      .get<boolean>('rewriteCellOnPrompt', false);
+    if (!rewriteEnabled) {
+      return;
+    }
     const lines: string[] = [];
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
@@ -543,12 +564,88 @@ export class SqlExecutor {
     };
   }
 
+  private postExecutionState(
+    cell: vscode.NotebookCell,
+    state: {
+      isExecuting: boolean;
+      backendPid: number | null;
+      connectionId: string;
+      databaseName: string;
+      cellUri: string;
+    },
+  ): void {
+    if (!this._messaging) {
+      return;
+    }
+    const editor = vscode.window.visibleNotebookEditors.find((e) => e.notebook === cell.notebook);
+    if (editor) {
+      void this._messaging.postMessage({ type: 'executionState', ...state }, editor);
+    }
+  }
+
+  private isQueryCancelledError(err: unknown): boolean {
+    const code = (err as { code?: string })?.code;
+    return code === '57014' || (err instanceof Error && /cancel/i.test(err.message));
+  }
+
+  private getNamedTableSession(notebookUri: string): Map<string, string> {
+    let session = this.namedCellTables.get(notebookUri);
+    if (!session) {
+      session = new Map();
+      this.namedCellTables.set(notebookUri, session);
+    }
+    return session;
+  }
+
+  private buildCellReferenceMap(cell: vscode.NotebookCell): Record<string, string> {
+    const map: Record<string, string> = {};
+    const session = this.getNamedTableSession(cell.notebook.uri.toString());
+    for (const [name, table] of session) {
+      map[name] = table;
+    }
+    return map;
+  }
+
+  private async persistCellLastRun(
+    cell: vscode.NotebookCell,
+    lastRun: NexqlCellMetadata['lastRun'],
+  ): Promise<void> {
+    if (!lastRun) return;
+    const current = { ...(cell.metadata as Record<string, unknown>) };
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(cell.notebook.uri, [
+      vscode.NotebookEdit.updateCellMetadata(cell.index, { ...current, lastRun }),
+    ]);
+    await vscode.workspace.applyEdit(edit);
+  }
+
+  private async materializeNamedCellResult(
+    client: import('pg').Client,
+    cell: vscode.NotebookCell,
+    cellName: string,
+    queryForExecution: string,
+  ): Promise<void> {
+    const table = SqlParser.sanitizeCellTableName(cellName);
+    await client.query(`DROP TABLE IF EXISTS ${table}`);
+    await client.query(`CREATE TEMP TABLE ${table} AS ${queryForExecution}`);
+    this.getNamedTableSession(cell.notebook.uri.toString()).set(cellName, table);
+  }
+
   public async executeCell(cell: vscode.NotebookCell) {
     debugLog(`SqlExecutor: Starting cell execution. Controller ID: ${this._controller.id}`);
     const execution = this._controller.createNotebookCellExecution(cell);
     const startTime = Date.now();
     execution.start(startTime);
     await execution.clearOutput();
+
+    const cellUri = cell.document.uri.toString();
+    SqlExecutor.executingCellByNotebook.set(cell.notebook.uri.toString(), cellUri);
+    let inFlightEntry: InFlightExecution | undefined;
+    let noticeListener: ((msg: unknown) => void) | undefined;
+    let client: import('pg').Client | undefined;
+    const cancellationDisposable = execution.token.onCancellationRequested(() => {
+      void SqlExecutor.cancelInFlightForCell(cellUri);
+    });
 
     try {
       let metadata = ConnectionUtils.getEffectiveMetadata(cell.notebook.metadata) as PostgresMetadata;
@@ -601,7 +698,7 @@ export class SqlExecutor {
       }
       connection.readOnlyMode = readOnlyMode;
 
-      const client = await ConnectionManager.getInstance().getSessionClient({
+      client = await ConnectionManager.getInstance().getSessionClient({
         id: connection.id,
         host: connection.host,
         port: connection.port,
@@ -612,18 +709,40 @@ export class SqlExecutor {
 
       debugLog('SqlExecutor: Connected to database');
 
+      const databaseName = metadata.databaseName || connection.database;
+      inFlightEntry = {
+        backendPid: null,
+        connectionId: connection.id,
+        databaseName,
+        cancelled: false,
+        client,
+      };
+      SqlExecutor.inFlight.set(cellUri, inFlightEntry);
+
       // Get PostgreSQL backend PID for query cancellation
       let backendPid: number | null = null;
       try {
         const pidResult = await client.query('SELECT pg_backend_pid()');
         backendPid = pidResult.rows[0]?.pg_backend_pid || null;
+        inFlightEntry.backendPid = backendPid;
         debugLog('SqlExecutor: Backend PID:', backendPid);
       } catch (err) {
         debugWarn('Failed to get backend PID:', err);
       }
 
+      this.postExecutionState(cell, {
+        isExecuting: true,
+        backendPid,
+        connectionId: connection.id,
+        databaseName,
+        cellUri,
+      });
+
       const queryText = cell.document.getText();
-      const statements = SqlParser.splitSqlStatements(queryText);
+      const cellRefMap = this.buildCellReferenceMap(cell);
+      const statements = SqlParser.splitSqlStatements(queryText).map((stmt) =>
+        SqlParser.rewriteCellReferences(stmt, cellRefMap),
+      );
       const allowLiveNotices = statements.length === 1;
 
       // Capture PostgreSQL NOTICE messages (timestamp = client receive time, log-style)
@@ -653,7 +772,7 @@ export class SqlExecutor {
           }
         })();
       };
-      const noticeListener = (msg: any) => {
+      noticeListener = (msg: any) => {
         const message = msg.message || msg.toString();
         pushNotice(message);
         emitLiveNoticesIfNeeded();
@@ -744,6 +863,10 @@ export class SqlExecutor {
       const statementsResults: StatementResult[] = [];
       const failureStrategy = this.getFailureStrategy();
       for (let stmtIndex = 0; stmtIndex < statements.length; stmtIndex++) {
+        if (inFlightEntry?.cancelled) {
+          throw new Error('Query execution cancelled');
+        }
+
         ResultCursorService.closeSessionsForCellUri(cell.document.uri.toString());
         liveNoticesActive = false;
         let query = statements[stmtIndex];
@@ -836,6 +959,10 @@ export class SqlExecutor {
             usedSlidingWindow = true;
             slidingPayload = openedSession.payload;
           }
+        }
+
+        if (inFlightEntry?.cancelled) {
+          throw new Error('Query execution cancelled');
         }
 
         if (!usedSlidingWindow && !useFullDataset) {
@@ -1106,6 +1233,25 @@ export class SqlExecutor {
             executionTime,
           });
 
+          const cellMeta = cell.metadata as NexqlCellMetadata | undefined;
+          const cellName = SqlParser.resolveCellName(cellMeta?.name, queryText);
+          if (cellName && result.command === 'SELECT' && !usedSlidingWindow) {
+            try {
+              await this.materializeNamedCellResult(client, cell, cellName, queryForExecution);
+            } catch (matErr) {
+              debugWarn('Failed to materialize named cell result:', matErr);
+            }
+          }
+
+          if (stmtIndex === statements.length - 1) {
+            void this.persistCellLastRun(cell, {
+              ms: durationMs,
+              rows: result.rowCount ?? rows.length,
+              at: Date.now(),
+              sqlHash: queryHash,
+            });
+          }
+
           const qa = SqlSafetyAnalyzer.getInstance();
           if (qa.isCatalogInvalidatingSql(statements[stmtIndex]) || qa.isSearchPathChangingSql(statements[stmtIndex])) {
             const dbName = metadata.databaseName || connection.database || 'postgres';
@@ -1123,6 +1269,10 @@ export class SqlExecutor {
           }
 
         } catch (err: any) {
+          if (inFlightEntry?.cancelled || this.isQueryCancelledError(err)) {
+            break;
+          }
+
           const stmtEndTime = Date.now();
           const executionTime = (stmtEndTime - stmtStartTime) / 1000;
           const durationMs = executionTime * 1000;
@@ -1241,13 +1391,33 @@ export class SqlExecutor {
         }
       }
 
-      client.removeListener('notice', noticeListener);
+      if (inFlightEntry?.cancelled) {
+        execution.end(false, Date.now());
+        return;
+      }
+
       execution.end(true, Date.now());
       void this.maybePromptForReview();
       // Update notebook title after successful cell execution
       updateNotebookTitle(cell.notebook).catch(err => debugWarn('Failed to update notebook title:', err));
 
     } catch (err: any) {
+      if (
+        inFlightEntry?.cancelled
+        || this.isQueryCancelledError(err)
+        || err?.message === 'Query execution cancelled'
+        || err?.message === 'Query execution cancelled by user'
+      ) {
+        await execution.replaceOutput(new NotebookCellOutput([
+          new NotebookCellOutputItem(
+            Buffer.from('Query execution cancelled.', 'utf8'),
+            'text/markdown',
+          ),
+        ]));
+        execution.end(false, Date.now());
+        return;
+      }
+
       console.error('SqlExecutor: Execution failed:', err);
       const pgErrorCode: string | undefined = err.code;
 
@@ -1296,6 +1466,25 @@ export class SqlExecutor {
       execution.end(false, Date.now());
       // Update notebook title even after failed execution (cell content may have changed)
       updateNotebookTitle(cell.notebook).catch(err => debugWarn('Failed to update notebook title:', err));
+    } finally {
+      cancellationDisposable.dispose();
+      if (inFlightEntry?.cancelled) {
+        ResultCursorService.dropSessionsForCellUri(cellUri);
+      }
+      SqlExecutor.inFlight.delete(cellUri);
+      SqlExecutor.executingCellByNotebook.delete(cell.notebook.uri.toString());
+      if (inFlightEntry) {
+        this.postExecutionState(cell, {
+          isExecuting: false,
+          backendPid: inFlightEntry.backendPid,
+          connectionId: inFlightEntry.connectionId,
+          databaseName: inFlightEntry.databaseName,
+          cellUri,
+        });
+      }
+      if (client && noticeListener) {
+        client.removeListener('notice', noticeListener);
+      }
     }
   }
 
@@ -1335,12 +1524,67 @@ export class SqlExecutor {
 
   // --- Message Handlers for Execution (Cancel, Updates) ---
 
-  public async cancelQuery(message: any) {
-    const { backendPid, connectionId, databaseName } = message;
+  public static getExecutingCellUri(notebookUri: string): string | undefined {
+    return SqlExecutor.executingCellByNotebook.get(notebookUri);
+  }
+
+  public static async cancelInFlightForCell(cellUri: string): Promise<void> {
+    const entry = SqlExecutor.inFlight.get(cellUri);
+    if (!entry) {
+      debugWarn(`[SqlExecutor] cancel requested but no in-flight entry for ${cellUri}`);
+      return;
+    }
+    entry.cancelled = true;
+    ResultCursorService.dropSessionsForCellUri(cellUri);
+    debugWarn(
+      `[SqlExecutor] cancelling query cell=${cellUri} pid=${entry.backendPid ?? 'pending'}`,
+    );
+    await SqlExecutor.issueCancelBackend(
+      entry.backendPid,
+      entry.connectionId,
+      entry.databaseName,
+      entry.client,
+    );
+  }
+
+  public getExecutingCellUri(notebookUri: string): string | undefined {
+    return SqlExecutor.getExecutingCellUri(notebookUri);
+  }
+
+  public async cancelInFlight(cellUri: string): Promise<void> {
+    await SqlExecutor.cancelInFlightForCell(cellUri);
+  }
+
+  private static async issueCancelBackend(
+    backendPid: number | null,
+    connectionId: string,
+    databaseName: string,
+    sessionClient?: import('pg').Client,
+  ): Promise<void> {
+    const pid =
+      backendPid ??
+      (sessionClient as { processID?: number } | undefined)?.processID ??
+      null;
+    const secretKey = (sessionClient as { secretKey?: number } | undefined)?.secretKey;
+    if (!pid) {
+      debugWarn('[SqlExecutor] cancel skipped: backend PID not available yet');
+      return;
+    }
     try {
-      const connections = vscode.workspace.getConfiguration().get<any[]>('postgresExplorer.connections') || [];
-      const connection = connections.find(c => c.id === connectionId);
-      if (!connection) throw new Error('Connection not found');
+      const connection = ConnectionUtils.findConnection(connectionId);
+      if (!connection) {
+        throw new Error('Connection not found');
+      }
+
+      if (secretKey !== undefined && secretKey !== null) {
+        try {
+          await ConnectionManager.getInstance().sendCancelRequest(connection, pid, secretKey);
+          vscode.window.showInformationMessage(`Query cancelled (PID: ${pid})`);
+          return;
+        } catch (wireErr) {
+          debugWarn('[SqlExecutor] wire cancel failed, trying pg_cancel_backend:', wireErr);
+        }
+      }
 
       let cancelClient;
       try {
@@ -1350,16 +1594,41 @@ export class SqlExecutor {
           port: connection.port,
           username: connection.username,
           database: databaseName || connection.database,
-          name: connection.name
+          name: connection.name,
         });
-        await cancelClient.query('SELECT pg_cancel_backend($1)', [backendPid]);
-        vscode.window.showInformationMessage(`Query cancelled (PID: ${backendPid})`);
+        const cancelResult = await cancelClient.query('SELECT pg_cancel_backend($1)', [pid]);
+        const cancelled = cancelResult.rows[0]?.pg_cancel_backend === true;
+        if (cancelled) {
+          vscode.window.showInformationMessage(`Query cancelled (PID: ${pid})`);
+        } else {
+          debugWarn(`[SqlExecutor] pg_cancel_backend returned false for PID ${pid}`);
+        }
       } finally {
-        if (cancelClient) cancelClient.release();
+        if (cancelClient) {
+          cancelClient.release();
+        }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       await ErrorService.getInstance().handleCommandError(err, 'cancel query');
     }
+  }
+
+  private async issueCancelBackend(
+    backendPid: number | null,
+    connectionId: string,
+    databaseName: string,
+    sessionClient?: import('pg').Client,
+  ): Promise<void> {
+    await SqlExecutor.issueCancelBackend(backendPid, connectionId, databaseName, sessionClient);
+  }
+
+  public async cancelQuery(message: any) {
+    const { backendPid, connectionId, databaseName, cellUri } = message;
+    if (cellUri) {
+      await this.cancelInFlight(cellUri);
+      return;
+    }
+    await this.issueCancelBackend(backendPid, connectionId, databaseName);
   }
 
   public async executeBatch(batch: { text: string; params: any[] }[], notebook: vscode.NotebookDocument) {

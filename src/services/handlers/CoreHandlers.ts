@@ -353,7 +353,7 @@ export class ExportRequestHandler implements IMessageHandler {
     return 'query_export';
   }
 
-  private getDefaultExportUri(ext: 'csv' | 'json' | 'md', tableInfo?: any): vscode.Uri {
+  private getDefaultExportUri(ext: 'csv' | 'json' | 'md' | 'xls', tableInfo?: any): vscode.Uri {
     const filename = `${this.inferDefaultBasename(tableInfo)}.${ext}`;
     const wsFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
     if (wsFolder) {
@@ -385,11 +385,12 @@ export class ExportRequestHandler implements IMessageHandler {
       tableInfo,
     } = message ?? {};
 
-    const effectiveFormat: 'csv' | 'json' | 'markdown' | 'clipboard' | 'sqlinsert' =
+    const effectiveFormat: 'csv' | 'json' | 'markdown' | 'clipboard' | 'sqlinsert' | 'excel' =
       format === 'json' ||
       format === 'markdown' ||
       format === 'clipboard' ||
-      format === 'sqlinsert'
+      format === 'sqlinsert' ||
+      format === 'excel'
         ? format
         : 'csv';
 
@@ -489,6 +490,20 @@ export class ExportRequestHandler implements IMessageHandler {
       return;
     }
 
+    if (effectiveFormat === 'excel') {
+      const excel = this.rowsToExcel(rowsToExport, columnsToExport);
+      const uri = await vscode.window.showSaveDialog({
+        filters: { Excel: ['xls'] },
+        defaultUri: this.getDefaultExportUri('xls', tableInfo),
+      });
+      if (uri) {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(excel));
+        await this.openSavedFile(uri);
+        vscode.window.showInformationMessage(`Exported ${rowsToExport.length.toLocaleString()} rows (Excel)`);
+      }
+      return;
+    }
+
     const markdown = this.rowsToMarkdown(rowsToExport, columnsToExport);
     const uri = await vscode.window.showSaveDialog({
       filters: { Markdown: ['md'] },
@@ -527,6 +542,60 @@ export class ExportRequestHandler implements IMessageHandler {
       })
       .join('\n');
     return `${header}\n${separator}\n${body}`;
+  }
+
+  private rowsToExcel(rows: any[], columns: string[]): string {
+    const escapeHtml = (value: string): string =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const stringifyValue = (val: unknown): string => {
+      if (val === null || val === undefined) {
+        return '';
+      }
+      if (typeof val === 'object') {
+        return JSON.stringify(val);
+      }
+      return String(val);
+    };
+
+    const header = columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('');
+    const body = rows
+      .map((row) => {
+        const cells = columns
+          .map((col) => `<td>${escapeHtml(stringifyValue(row[col]))}</td>`)
+          .join('');
+        return `<tr>${cells}</tr>`;
+      })
+      .join('');
+
+    return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<!--[if gte mso 9]>
+<xml>
+<x:ExcelWorkbook>
+<x:ExcelWorksheets>
+<x:ExcelWorksheet>
+<x:Name>Sheet1</x:Name>
+<x:WorksheetOptions>
+<x:DisplayGridlines/>
+</x:WorksheetOptions>
+</x:ExcelWorksheet>
+</x:ExcelWorksheets>
+</x:ExcelWorkbook>
+</xml>
+<![endif]-->
+</head>
+<body>
+<table>
+<thead><tr>${header}</tr></thead>
+<tbody>${body}</tbody>
+</table>
+</body>
+</html>`;
   }
 
   private rowsToSqlInsert(rows: any[], columns: string[], tableInfo?: any): string {

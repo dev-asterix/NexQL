@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../services/ConnectionManager';
 import { SqlParser } from './kernel/SqlParser';
 import { outputChannel } from '../extension';
+import { getCompletionCandidateSource } from './completion/CompletionCandidateSource';
 import { sqlFormatIdentifier } from './sql-completion-shared';
 import { PG_VERSION_10, PG_VERSION_11, queryServerVersionNum } from '../lib/postgresServerVersion';
 
@@ -581,7 +582,7 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
             'EXPLAIN ANALYZE'
           ])
         );
-        return items;
+        return this._mergeIndexCandidates(items, document, position, conn, _context.triggerKind === vscode.CompletionTriggerKind.Invoke);
       }
 
       await this._ensureCache(cacheKey, cfg, database);
@@ -592,10 +593,47 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
       if (parsed.clause === SqlClause.Where || parsed.clause === SqlClause.Having) {
         parsed.precedingWhereColumnType = this._resolvePrecedingColumnDataType(parsed.cleanText, parsed, cache.columns);
       }
-      return this._buildCompletions(parsed, cache, document, position);
+      const items = this._buildCompletions(parsed, cache, document, position);
+      return this._mergeIndexCandidates(items, document, position, conn, _context.triggerKind === vscode.CompletionTriggerKind.Invoke);
     } catch (error) {
       outputChannel?.appendLine(`[SqlCompletionProvider] ${error}`);
       return [];
+    }
+  }
+
+  private async _mergeIndexCandidates(
+    items: vscode.CompletionItem[],
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    conn: { connectionId: string; database: string },
+    explicit: boolean,
+  ): Promise<vscode.CompletionItem[]> {
+    const source = getCompletionCandidateSource();
+    if (!source) {
+      return items;
+    }
+    const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_"@.]+/);
+    const partialWord = wordRange ? document.getText(wordRange) : '';
+    const sqlBeforeCursor = SqlCompletionProvider.sqlTextBeforeCursor(document, position);
+    try {
+      const candidates = await source.getCandidates({
+        connectionId: conn.connectionId,
+        database: conn.database,
+        sqlBeforeCursor,
+        partialWord,
+        explicit,
+      });
+      const merged = [...items];
+      for (const candidate of candidates) {
+        const item = new vscode.CompletionItem(candidate.label, vscode.CompletionItemKind.Value);
+        item.insertText = candidate.insertText;
+        item.detail = candidate.detail;
+        item.sortText = candidate.sortText ?? `00_${candidate.label}`;
+        merged.push(item);
+      }
+      return merged;
+    } catch {
+      return items;
     }
   }
 

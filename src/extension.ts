@@ -121,6 +121,19 @@ export async function activate(context: vscode.ExtensionContext) {
   // Provide extension context to NotebookBuilder for persistent session support (Req 5.4)
   NotebookBuilder.setContext(context);
 
+  const updateHasConnectionContext = (): void => {
+    const connections = vscode.workspace.getConfiguration().get<unknown[]>('postgresExplorer.connections') || [];
+    void vscode.commands.executeCommand('setContext', 'postgresExplorer.hasConnection', connections.length > 0);
+  };
+  updateHasConnectionContext();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('postgresExplorer.connections')) {
+        updateHasConnectionContext();
+      }
+    }),
+  );
+
   // Clean up SessionRegistry when a scratch notebook is closed (Req 6.1, 6.2)
   context.subscriptions.push(
     vscode.workspace.onDidCloseNotebookDocument((closedDoc) => {

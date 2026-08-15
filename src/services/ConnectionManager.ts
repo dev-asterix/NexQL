@@ -415,6 +415,70 @@ export class ConnectionManager {
     return `${config.id}:${config.database || 'postgres'}`;
   }
 
+  /**
+   * PostgreSQL CancelRequest on a fresh socket. Does not touch the busy session client.
+   */
+  public async sendCancelRequest(
+    config: ConnectionConfig,
+    processId: number,
+    secretKey: number,
+  ): Promise<void> {
+    const clientConfig = await this.createClientConfig(config);
+    const host = String(clientConfig.host ?? 'localhost');
+    const port = typeof clientConfig.port === 'number' ? clientConfig.port : 5432;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Connection = require('pg/lib/connection') as new (options: { ssl?: unknown }) => {
+      connect: (portOrPath: number | string, hostArg?: string) => void;
+      cancel: (pid: number, key: number) => void;
+      end: () => void;
+      once: (event: string, cb: (...args: unknown[]) => void) => void;
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const con = new Connection({ ssl: clientConfig.ssl ?? false });
+      const timer = setTimeout(() => {
+        try {
+          con.end();
+        } catch {
+          // ignore
+        }
+        reject(new Error('Cancel request timed out'));
+      }, 5000);
+
+      const finish = (err?: Error) => {
+        clearTimeout(timer);
+        try {
+          con.end();
+        } catch {
+          // ignore
+        }
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      };
+
+      con.once('error', (err: unknown) => {
+        finish(err instanceof Error ? err : new Error(String(err)));
+      });
+      con.once('connect', () => {
+        try {
+          con.cancel(processId, secretKey);
+          finish();
+        } catch (err) {
+          finish(err instanceof Error ? err : new Error(String(err)));
+        }
+      });
+
+      if (host.startsWith('/')) {
+        con.connect(`${host}/.s.PGSQL.${port}`);
+      } else {
+        con.connect(port, host);
+      }
+    });
+  }
+
   public async createClientConfig(
     config: ConnectionConfig,
     forceDisableSSL: boolean = false,

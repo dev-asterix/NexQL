@@ -16,10 +16,12 @@ export interface TopBarOptions {
   readOnlyMode?: boolean;
   isConnected: boolean;
   showContextStrip?: boolean;
+  isExecuting?: boolean;
   onRunAll: () => void;
   onClearOutputs: () => void;
   onAddCodeCell: () => void;
   onAddMarkdownCell: () => void;
+  onCancel?: () => void;
 }
 
 const ENV_CHIP_STYLES: Record<SentinelEnvironment, { bg: string; border: string; text: string; label: string }> = {
@@ -67,6 +69,14 @@ export function createTopBar(options: TopBarOptions, postMessage: (msg: any) => 
 
   if (options.showContextStrip !== false && options.isConnected) {
     bar.appendChild(createContextStrip(options));
+  }
+
+  if (options.isExecuting && options.onCancel) {
+    const cancelBtn = createTopBarButton('■ Cancel Query', options.onCancel);
+    cancelBtn.style.background = 'color-mix(in srgb, var(--vscode-inputValidation-errorBackground) 40%, transparent)';
+    cancelBtn.style.color = 'var(--vscode-inputValidation-errorForeground)';
+    bar.appendChild(cancelBtn);
+    bar.appendChild(createSeparator());
   }
 
   bar.appendChild(createTopBarButton('▶ Run All', options.onRunAll));

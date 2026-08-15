@@ -9,6 +9,7 @@ import { deleteSavedQueryWithCloudPrompt } from '../features/savedQueries/delete
 import { SavedQueryDetailsPanel } from '../features/savedQueries/SavedQueryDetailsPanel';
 import { ConnectionUtils } from '../utils/connectionUtils';
 import { SecretStorageService } from '../services/SecretStorageService';
+import { NotebookBuilder } from './helper';
 
 /**
  * Phase 7 Advanced Power User & AI commands
@@ -296,6 +297,60 @@ export async function saveQueryToLibrary(): Promise<void> {
 }
 
 /**
+ * Open a saved query in a new notebook (with connection context when available).
+ */
+export async function openSavedQueryAsNotebook(query: import('../features/savedQueries/SavedQueriesService').SavedQuery): Promise<void> {
+  const service = SavedQueriesService.getInstance();
+  await service.recordUsage(query.id);
+
+  if (!query.connectionId) {
+    const builder = new NotebookBuilder({});
+    builder.addSql(query.query);
+    await builder.showNew();
+    vscode.window.showInformationMessage(`✓ Opened query: "${query.title}"`);
+    return;
+  }
+
+  const connection = ConnectionUtils.findConnection(query.connectionId);
+  if (!connection) {
+    vscode.window.showErrorMessage(`Connection "${query.connectionId}" not found. It may have been deleted.`);
+    return;
+  }
+
+  const password = await SecretStorageService.getInstance().getPassword(query.connectionId);
+
+  const metadata = {
+    connectionId: query.connectionId,
+    databaseName: query.databaseName,
+    host: connection.host,
+    port: connection.port,
+    username: connection.username,
+    password: password || connection.password,
+    name: connection.name,
+    custom: {
+      cells: [],
+      metadata: {
+        connectionId: query.connectionId,
+        databaseName: query.databaseName,
+        schema: query.schemaName,
+        host: connection.host,
+        port: connection.port,
+        username: connection.username,
+        enableScripts: true,
+      },
+    },
+  };
+
+  const builder = new NotebookBuilder(metadata);
+  builder.addSql(query.query);
+  await builder.showNew();
+
+  vscode.window.showInformationMessage(
+    `✓ Opened query: "${query.title}"${query.databaseName ? ` (${query.databaseName})` : ''}`,
+  );
+}
+
+/**
  * Load a saved query
  */
 export async function loadSavedQuery(): Promise<void> {
@@ -320,15 +375,7 @@ export async function loadSavedQuery(): Promise<void> {
   });
 
   if (selected) {
-    // Record usage
-    await service.recordUsage(selected.query.id);
-
-    // Open in new editor using openTextDocument
-    const doc = await vscode.workspace.openTextDocument({
-      language: 'pgsql',
-      content: selected.query.query,
-    });
-    await vscode.window.showTextDocument(doc);
+    await openSavedQueryAsNotebook(selected.query);
   }
 }
 
@@ -352,71 +399,15 @@ export async function copySavedQuery(treeItem: any): Promise<void> {
  * Open a saved query in a new notebook with its original connection context
  */
 export async function openSavedQueryInNotebook(treeItem: any): Promise<void> {
-  // Handle both tree item (from context menu) and direct query object
   const query = treeItem?.query || treeItem;
-  
+
   if (!query) {
     vscode.window.showWarningMessage('No query selected.');
     return;
   }
 
   try {
-    if (!query.connectionId) {
-      vscode.window.showWarningMessage('This query does not have a connection context. Please save it again from a notebook.');
-      return;
-    }
-
-    // Record usage
-    const service = SavedQueriesService.getInstance();
-    await service.recordUsage(query.id);
-
-    // Fetch the full connection details from config
-    const connection = ConnectionUtils.findConnection(query.connectionId);
-    if (!connection) {
-      vscode.window.showErrorMessage(`Connection "${query.connectionId}" not found. It may have been deleted.`);
-      return;
-    }
-
-    // Get the stored password from secret storage
-    const password = await SecretStorageService.getInstance().getPassword(query.connectionId);
-
-    // Build complete metadata for the notebook
-    const metadata = {
-      connectionId: query.connectionId,
-      databaseName: query.databaseName,
-      host: connection.host,
-      port: connection.port,
-      username: connection.username,
-      password: password || connection.password,
-      custom: {
-        cells: [],
-        metadata: {
-          connectionId: query.connectionId,
-          databaseName: query.databaseName,
-          schema: query.schemaName,
-          host: connection.host,
-          port: connection.port,
-          username: connection.username,
-          enableScripts: true
-        }
-      }
-    };
-
-    // Create notebook with SQL cell containing the query
-    const notebookData = new vscode.NotebookData([
-      new vscode.NotebookCellData(vscode.NotebookCellKind.Code, query.query, 'sql')
-    ]);
-    notebookData.metadata = metadata;
-
-    // Open notebook in the notebook editor
-    const notebook = await vscode.workspace.openNotebookDocument('postgres-notebook', notebookData);
-    await vscode.window.showNotebookDocument(notebook);
-
-    vscode.window.showInformationMessage(
-      `✓ Opened query: "${query.title}"${
-        query.databaseName ? ` (${query.databaseName})` : ''
-      }`
-    );
+    await openSavedQueryAsNotebook(query);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     vscode.window.showErrorMessage(`Failed to open query: ${errorMessage}`);
@@ -571,7 +562,7 @@ export async function importSavedQueries(): Promise<void> {
  */
 export async function searchSavedQueries(): Promise<void> {
   const searchText = await vscode.window.showInputBox({
-    prompt: 'Search queries by title or description',
+    prompt: 'Search queries by title, description, SQL, or tags',
     placeHolder: 'e.g., "user report"',
   });
 
@@ -598,12 +589,7 @@ export async function searchSavedQueries(): Promise<void> {
   });
 
   if (selected) {
-    await service.recordUsage(selected.query.id);
-    const doc = await vscode.workspace.openTextDocument({
-      language: 'pgsql',
-      content: selected.query.query,
-    });
-    await vscode.window.showTextDocument(doc);
+    await openSavedQueryAsNotebook(selected.query);
   }
 }
 
@@ -649,12 +635,7 @@ export async function showQueryRecommendations(): Promise<void> {
   });
 
   if (selected && 'query' in selected) {
-    await service.recordUsage(selected.query.id);
-    const doc = await vscode.workspace.openTextDocument({
-      language: 'pgsql',
-      content: selected.query.query,
-    });
-    await vscode.window.showTextDocument(doc);
+    await openSavedQueryAsNotebook((selected as { query: SavedQuery }).query);
   }
 }
 

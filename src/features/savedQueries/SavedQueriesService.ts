@@ -271,7 +271,9 @@ export class SavedQueriesService {
     const lower = searchText.toLowerCase();
     return this.getQueries().filter((q) =>
       q.title.toLowerCase().includes(lower) ||
-      q.description?.toLowerCase().includes(lower)
+      q.description?.toLowerCase().includes(lower) ||
+      q.query.toLowerCase().includes(lower) ||
+      q.tags?.some((tag) => tag.toLowerCase().includes(lower))
     );
   }
 

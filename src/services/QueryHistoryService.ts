@@ -12,6 +12,8 @@ export interface QueryHistoryItem {
   connectionId?: string;
   databaseName?: string;
   slow?: boolean;
+  pinned?: boolean;
+  label?: string;
 }
 
 export class QueryHistoryService {
@@ -99,6 +101,52 @@ export class QueryHistoryService {
     const history = this.getHistory();
     const newHistory = history.filter(item => item.id !== id);
     await this.storage.update(this.STORAGE_KEY, newHistory);
+    this._onDidChangeHistory.fire();
+  }
+
+  public getPinned(): QueryHistoryItem[] {
+    return this.getHistory().filter((item) => item.pinned);
+  }
+
+  public search(
+    term: string,
+    options?: {
+      failedOnly?: boolean;
+      slowOnly?: boolean;
+      connectionId?: string;
+      databaseName?: string;
+    },
+  ): QueryHistoryItem[] {
+    const lower = term.trim().toLowerCase();
+    return this.getHistory().filter((item) => {
+      if (options?.failedOnly && item.success) return false;
+      if (options?.slowOnly && !item.slow) return false;
+      if (options?.connectionId && item.connectionId !== options.connectionId) return false;
+      if (options?.databaseName && item.databaseName !== options.databaseName) return false;
+      if (!lower) return true;
+      return (
+        item.query.toLowerCase().includes(lower)
+        || item.label?.toLowerCase().includes(lower)
+        || item.connectionName?.toLowerCase().includes(lower)
+      );
+    });
+  }
+
+  public async togglePin(id: string): Promise<void> {
+    const history = this.getHistory();
+    const item = history.find((h) => h.id === id);
+    if (!item) return;
+    item.pinned = !item.pinned;
+    await this.storage.update(this.STORAGE_KEY, history);
+    this._onDidChangeHistory.fire();
+  }
+
+  public async setLabel(id: string, label: string): Promise<void> {
+    const history = this.getHistory();
+    const item = history.find((h) => h.id === id);
+    if (!item) return;
+    item.label = label.trim() || undefined;
+    await this.storage.update(this.STORAGE_KEY, history);
     this._onDidChangeHistory.fire();
   }
 

@@ -29,6 +29,7 @@ export interface TableEvents {
   ) => void;
   onSortChange?: (column: string | null, direction: 'asc' | 'desc' | 'none') => void;
   onFilterChange?: (filterState: FilterState) => void;
+  onRunDerivedQuery?: (sql: string) => void;
 }
 
 interface PendingInsertRow {
@@ -105,6 +106,8 @@ export class TableRenderer {
 
   // Events
   private events: TableEvents = {};
+  private focusCell: { sourceIndex: number; col: string } | null = null;
+  private interactionHandlersAttached = false;
 
   constructor(container: HTMLElement, events: TableEvents = {}) {
     this.mainContainer = container;
@@ -156,6 +159,8 @@ export class TableRenderer {
 
     // Apply sort + filter to produce displayRows
     this.applyTransforms();
+
+    this.attachCopyAndContextMenu();
 
     this.teardownVirtualScroll();
     this.dataRowHeightEstimate = TableRenderer.DEFAULT_DATA_ROW_HEIGHT_PX;
@@ -1035,6 +1040,7 @@ export class TableRenderer {
       }
     }
 
+    this.bindCellInteractions(td, sourceIndex, col, val);
     return td;
   }
 
@@ -1419,6 +1425,141 @@ export class TableRenderer {
   /** Scrollable region for attaching listeners (streaming result pager). */
   public getScrollContainer(): HTMLElement {
     return this.tableContainer;
+  }
+
+  private attachCopyAndContextMenu(): void {
+    if (this.interactionHandlersAttached) {
+      return;
+    }
+    this.interactionHandlersAttached = true;
+
+    this.mainContainer.tabIndex = 0;
+    this.mainContainer.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'c') {
+        return;
+      }
+      const text = this.buildCopyPayload();
+      if (!text) {
+        return;
+      }
+      e.preventDefault();
+      void navigator.clipboard.writeText(text);
+    });
+  }
+
+  private buildCopyPayload(): string {
+    if (this.focusCell) {
+      const value = this.rows[this.focusCell.sourceIndex]?.[this.focusCell.col];
+      return value === null || value === undefined ? '' : String(value);
+    }
+    if (this.selectedIndices.size === 0) {
+      return '';
+    }
+    const selected = Array.from(this.selectedIndices).sort((a, b) => a - b);
+    const header = this.columns.join('\t');
+    const body = selected
+      .map((idx) => this.columns.map((col) => this.formatCopyValue(this.rows[idx]?.[col])).join('\t'))
+      .join('\n');
+    return `${header}\n${body}`;
+  }
+
+  private formatCopyValue(val: unknown): string {
+    if (val === null || val === undefined) return '';
+    if (typeof val === 'object') return JSON.stringify(val);
+    return String(val);
+  }
+
+  private showCellContextMenu(
+    e: MouseEvent,
+    sourceIndex: number,
+    col: string,
+    value: unknown,
+  ): void {
+    e.preventDefault();
+    this.focusCell = { sourceIndex, col };
+
+    const menu = document.createElement('div');
+    menu.className = 'pg-grid-context-menu';
+    menu.style.cssText =
+      'position:fixed;z-index:2147483645;background:var(--vscode-menu-background);border:1px solid var(--vscode-menu-border);border-radius:4px;padding:4px 0;min-width:180px;box-shadow:0 2px 8px rgba(0,0,0,0.2);';
+
+    const addItem = (label: string, onClick: () => void) => {
+      const item = document.createElement('div');
+      item.textContent = label;
+      item.style.cssText =
+        'padding:6px 12px;font-size:12px;cursor:pointer;color:var(--vscode-menu-foreground);';
+      item.onmouseenter = () => {
+        item.style.background = 'var(--vscode-menu-selectionBackground)';
+      };
+      item.onmouseleave = () => {
+        item.style.background = 'transparent';
+      };
+      item.onclick = () => {
+        onClick();
+        menu.remove();
+      };
+      menu.appendChild(item);
+    };
+
+    const literal = this.formatSqlLiteral(value);
+    addItem('Filter by this value', () => {
+      this.filterState.clauses.push({
+        id: `ctx-${Date.now()}`,
+        column: col,
+        operator: 'equals',
+        value: literal.replace(/^'|'$/g, ''),
+      });
+      this.applyTransforms();
+      this.rerenderTable();
+      this.events.onFilterChange?.(this.filterState);
+    });
+    addItem('Exclude this value', () => {
+      this.filterState.clauses.push({
+        id: `ctx-${Date.now()}`,
+        column: col,
+        operator: 'notEquals',
+        value: literal.replace(/^'|'$/g, ''),
+      });
+      this.applyTransforms();
+      this.rerenderTable();
+      this.events.onFilterChange?.(this.filterState);
+    });
+    addItem('Copy as WHERE clause', () => {
+      const where = `"${col}" = ${literal}`;
+      void navigator.clipboard.writeText(where);
+    });
+
+    const fk = this.foreignKeys.find((f) => f.column === col);
+    if (fk) {
+      addItem('Show referencing rows', () => {
+        const sql = `SELECT * FROM "${fk.refSchema}"."${fk.refTable}" WHERE "${fk.refColumn}" = ${literal} LIMIT 1000`;
+        this.events.onRunDerivedQuery?.(sql);
+      });
+    }
+
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    document.body.appendChild(menu);
+    const close = () => {
+      menu.remove();
+      document.removeEventListener('click', close);
+    };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
+  private formatSqlLiteral(value: unknown): string {
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+    const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    return `'${str.replace(/'/g, "''")}'`;
+  }
+
+  protected bindCellInteractions(td: HTMLElement, sourceIndex: number, col: string, value: unknown): void {
+    td.addEventListener('click', () => {
+      this.focusCell = { sourceIndex, col };
+    });
+    td.addEventListener('contextmenu', (e) => this.showCellContextMenu(e, sourceIndex, col, value));
   }
 
   public dispose() {

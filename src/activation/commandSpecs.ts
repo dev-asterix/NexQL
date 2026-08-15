@@ -61,6 +61,8 @@ import {
 } from '../commands/phase7';
 import { SavedQueriesTreeProvider } from '../providers/Phase7TreeProviders';
 import { pickQueryHistory } from '../commands/pickQueryHistory';
+import { showQueryHistory } from '../commands/queryHistory';
+import { runToHere } from '../commands/notebookCommands';
 import { setTelemetryMode, showTelemetryModePicker } from '../commands/telemetryMode';
 
 
@@ -1406,6 +1408,14 @@ export function getCommandSpecs(
     {
       command: 'postgres-explorer.searchSavedQueries',
       callback: () => searchSavedQueries()
+    },
+    {
+      command: 'postgres-explorer.queryHistory',
+      callback: () => showQueryHistory()
+    },
+    {
+      command: 'postgres-explorer.runToHere',
+      callback: () => runToHere()
     },
     {
       command: 'postgres-explorer.showQueryRecommendations',
