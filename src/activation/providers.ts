@@ -10,6 +10,7 @@ import { AutoRefreshService } from '../services/AutoRefreshService';
 import { DdlViewerService } from '../services/DdlViewerService';
 import { LicenseService } from '../services/LicenseService';
 import { NotebookIndexService } from '../services/NotebookIndexService';
+import { NEXQL_STUDIO_SQL_LANGUAGE_SELECTOR } from '../lib/nexqlSqlDocument';
 
 function runDeferredProviderTask(outputChannel: vscode.OutputChannel, taskName: string, task: () => Promise<void>) {
   setTimeout(() => {
@@ -23,6 +24,97 @@ function runDeferredProviderTask(outputChannel: vscode.OutputChannel, taskName: 
       }
     })();
   }, 0);
+}
+
+/** Query Studio uses a dedicated language id so built-in SQL LS does not swallow completions. */
+function registerQueryStudioSqlProviders(
+  context: vscode.ExtensionContext,
+  outputChannel: vscode.OutputChannel,
+): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sqlCompletionModule = require('../providers/SqlCompletionProvider') as typeof import('../providers/SqlCompletionProvider');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sqlSigModule = require('../providers/SqlSignatureHelpProvider') as typeof import('../providers/SqlSignatureHelpProvider');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nexqlSqlDocModule = require('../lib/nexqlSqlDocument') as typeof import('../lib/nexqlSqlDocument');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const kernelCompletionModule = require('../providers/kernel/CompletionProvider') as typeof import('../providers/kernel/CompletionProvider');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const paramActionModule = require('../providers/kernel/ParamCommentCodeActionProvider') as typeof import('../providers/kernel/ParamCommentCodeActionProvider');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const queryCodeLensModule = require('../providers/QueryCodeLensProvider') as typeof import('../providers/QueryCodeLensProvider');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const dropProviderModule = require('../providers/DatabaseTreeDocumentDropProvider') as typeof import('../providers/DatabaseTreeDocumentDropProvider');
+
+  const sqlCompletionProvider = new sqlCompletionModule.SqlCompletionProvider();
+  sqlCompletionModule.SqlCompletionProvider.setInstance(sqlCompletionProvider);
+
+  const sqlSignatureHelpProvider = new sqlSigModule.SqlSignatureHelpProvider();
+  const kernelCompletionProvider = new kernelCompletionModule.CompletionProvider();
+  const paramCommentActions = new paramActionModule.ParamCommentCodeActionProvider();
+  const queryCodeLensProvider = new queryCodeLensModule.QueryCodeLensProvider();
+  queryCodeLensModule.QueryCodeLensProvider.setInstance(queryCodeLensProvider);
+  const dropProvider = new dropProviderModule.DatabaseTreeDocumentDropProvider();
+
+  const isStudioSql = nexqlSqlDocModule.isQueryStudioSqlDocument;
+  const completionTriggers = ['.', ' ', '"', '-'] as const;
+
+  const bootstrapStudio = (doc: vscode.TextDocument) => {
+    if (!sqlCompletionModule.SqlCompletionProvider.isQueryStudioSqlDocument(doc)) {
+      return;
+    }
+    void import('../lib/queryStudioBootstrap').then((m) => m.bootstrapQueryStudioDocument(doc));
+  };
+
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      NEXQL_STUDIO_SQL_LANGUAGE_SELECTOR,
+      sqlCompletionProvider,
+      ...completionTriggers,
+    ),
+    // Fallback while bootstrap has not yet switched language from built-in `sql`.
+    vscode.languages.registerCompletionItemProvider(
+      { scheme: 'file', language: 'sql' },
+      nexqlSqlDocModule.gateCompletionProvider(sqlCompletionProvider, isStudioSql),
+      ...completionTriggers,
+    ),
+    vscode.languages.registerCompletionItemProvider(
+      NEXQL_STUDIO_SQL_LANGUAGE_SELECTOR,
+      nexqlSqlDocModule.gateCompletionProvider(kernelCompletionProvider, isStudioSql),
+      ...completionTriggers,
+    ),
+    vscode.languages.registerSignatureHelpProvider(
+      NEXQL_STUDIO_SQL_LANGUAGE_SELECTOR,
+      sqlSignatureHelpProvider,
+      '(',
+      ',',
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      NEXQL_STUDIO_SQL_LANGUAGE_SELECTOR,
+      nexqlSqlDocModule.gateCodeActionsProvider(paramCommentActions, isStudioSql),
+      { providedCodeActionKinds: paramActionModule.ParamCommentCodeActionProvider.providedKinds },
+    ),
+    vscode.languages.registerCodeLensProvider(
+      NEXQL_STUDIO_SQL_LANGUAGE_SELECTOR,
+      nexqlSqlDocModule.gateCodeLensProvider(queryCodeLensProvider, isStudioSql),
+    ),
+    vscode.languages.registerDocumentDropEditProvider(
+      NEXQL_STUDIO_SQL_LANGUAGE_SELECTOR,
+      nexqlSqlDocModule.gateDocumentDropProvider(dropProvider, isStudioSql),
+    ),
+    vscode.workspace.onDidOpenTextDocument(bootstrapStudio),
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor) {
+        bootstrapStudio(editor.document);
+      }
+    }),
+  );
+
+  for (const doc of vscode.workspace.textDocuments) {
+    bootstrapStudio(doc);
+  }
+
+  outputChannel.appendLine('[startup] Query Studio SQL providers registered (nexql-studio-sql).');
 }
 
 export function registerProviders(context: vscode.ExtensionContext, outputChannel: vscode.OutputChannel) {
@@ -89,15 +181,22 @@ export function registerProviders(context: vscode.ExtensionContext, outputChanne
     vscode.languages.registerDocumentDropEditProvider(
       { scheme: 'vscode-notebook-cell', language: 'postgres' },
       documentDropProvider
-    )
+    ),
   );
 
-  // Register SQL completion provider, CodeLens, and query history lazily.
+  // Query Studio SQL — register synchronously (dedicated language; must not wait for deferred startup).
+  registerQueryStudioSqlProviders(context, outputChannel);
+
+  // Register SQL completion provider, CodeLens, and query history lazily (notebook cells).
   runDeferredProviderTask(outputChannel, 'registerSqlCompletionProvider', async () => {
     const sqlCompletionModule = await import('../providers/SqlCompletionProvider');
     const sqlSigModule = await import('../providers/SqlSignatureHelpProvider');
-    const sqlCompletionProvider = new sqlCompletionModule.SqlCompletionProvider();
-    sqlCompletionModule.SqlCompletionProvider.setInstance(sqlCompletionProvider);
+
+    let sqlCompletionProvider = sqlCompletionModule.SqlCompletionProvider.getInstance();
+    if (!sqlCompletionProvider) {
+      sqlCompletionProvider = new sqlCompletionModule.SqlCompletionProvider();
+      sqlCompletionModule.SqlCompletionProvider.setInstance(sqlCompletionProvider);
+    }
     const sqlSignatureHelpProvider = new sqlSigModule.SqlSignatureHelpProvider();
 
     const warmSqlCompletionCache = (notebook: vscode.NotebookDocument) => {
@@ -117,16 +216,26 @@ export function registerProviders(context: vscode.ExtensionContext, outputChanne
       vscode.languages.registerCompletionItemProvider(
         { scheme: 'vscode-notebook-cell', language: 'sql' },
         sqlCompletionProvider,
-        '.', ' '
+        '.', ' ', '"', '-',
+      ),
+      vscode.languages.registerCompletionItemProvider(
+        { scheme: 'vscode-notebook-cell', language: 'postgres' },
+        sqlCompletionProvider,
+        '.', ' ', '"', '-',
       ),
       vscode.languages.registerSignatureHelpProvider(
         { scheme: 'vscode-notebook-cell', language: 'sql' },
         sqlSignatureHelpProvider,
-        '(', ','
+        '(', ',',
+      ),
+      vscode.languages.registerSignatureHelpProvider(
+        { scheme: 'vscode-notebook-cell', language: 'postgres' },
+        sqlSignatureHelpProvider,
+        '(', ',',
       ),
       vscode.workspace.onDidOpenNotebookDocument(doc => {
         warmSqlCompletionCache(doc);
-      })
+      }),
     );
 
     for (const nb of vscode.workspace.notebookDocuments) {
@@ -136,8 +245,11 @@ export function registerProviders(context: vscode.ExtensionContext, outputChanne
 
   runDeferredProviderTask(outputChannel, 'registerQueryCodeLensProvider', async () => {
     const queryCodeLensModule = await import('../providers/QueryCodeLensProvider');
-    const queryCodeLensProvider = new queryCodeLensModule.QueryCodeLensProvider();
-    queryCodeLensModule.QueryCodeLensProvider.setInstance(queryCodeLensProvider);
+    let queryCodeLensProvider = queryCodeLensModule.QueryCodeLensProvider.getInstance();
+    if (!queryCodeLensProvider) {
+      queryCodeLensProvider = new queryCodeLensModule.QueryCodeLensProvider();
+      queryCodeLensModule.QueryCodeLensProvider.setInstance(queryCodeLensProvider);
+    }
 
     context.subscriptions.push(
       vscode.languages.registerCodeLensProvider(
@@ -147,7 +259,7 @@ export function registerProviders(context: vscode.ExtensionContext, outputChanne
       vscode.languages.registerCodeLensProvider(
         { language: 'sql', scheme: 'vscode-notebook-cell' },
         queryCodeLensProvider
-      )
+      ),
     );
     outputChannel.appendLine('QueryCodeLensProvider registered for EXPLAIN actions.');
   });

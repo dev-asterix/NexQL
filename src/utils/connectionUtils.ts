@@ -15,7 +15,8 @@ export class ConnectionUtils {
 
   /** Find a connection by ID */
   static findConnection(connectionId: string): any | undefined {
-    return this.getConnections().find(c => c.id === connectionId);
+    const target = String(connectionId);
+    return this.getConnections().find(c => String(c.id) === target);
   }
 
   /** Walk down nested custom metadata if present to get the actual PostgresMetadata object */

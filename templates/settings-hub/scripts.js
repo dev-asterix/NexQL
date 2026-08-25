@@ -2362,6 +2362,16 @@ $('prefHistoryMaxItems').addEventListener('change', (e) => {
   e.target.value = n;
   vscode.postMessage({ command: 'prefs/update', key: 'historyMaxItems', value: n });
 });
+const prefQueryDefaultExperienceEl = $('prefQueryDefaultExperience');
+if (prefQueryDefaultExperienceEl) {
+  prefQueryDefaultExperienceEl.addEventListener('change', (e) => {
+    vscode.postMessage({
+      command: 'prefs/update',
+      key: 'queryDefaultExperience',
+      value: e.target.value === 'queryStudio' ? 'queryStudio' : 'notebook',
+    });
+  });
+}
 const prefAgenticMaxStepsEl = $('prefAgenticMaxSteps');
 if (prefAgenticMaxStepsEl) {
   prefAgenticMaxStepsEl.addEventListener('change', (e) => {
@@ -2424,6 +2434,10 @@ function handlePrefsMessage(message) {
       $('prefDdlEnabled').checked = !!message.prefs.ddlEnabled;
       $('prefDdlOpenOnSelection').checked = !!message.prefs.ddlOpenOnSelection;
       $('prefHistoryMaxItems').value = message.prefs.historyMaxItems ?? 200;
+      if ($('prefQueryDefaultExperience')) {
+        $('prefQueryDefaultExperience').value =
+          message.prefs.queryDefaultExperience === 'queryStudio' ? 'queryStudio' : 'notebook';
+      }
       if ($('prefAgenticMaxSteps')) {
         $('prefAgenticMaxSteps').value = message.prefs.agenticMaxSteps ?? 20;
       }

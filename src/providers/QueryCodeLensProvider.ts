@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import { SqlSafetyAnalyzer } from '../services/sqlSafety';
 import { FullDatasetPreferenceService } from '../services/FullDatasetPreferenceService';
 import { SqlParser } from './kernel/SqlParser';
+import { isNexqlManagedSqlDocument, isQueryStudioSqlDocument } from '../lib/nexqlSqlDocument';
+import { isNexqlStudioSqlLanguage } from '../lib/nexqlStudioSqlLanguage';
+import { resolveRunnableSqlFromDocument } from '../lib/resolveRunnableSql';
 
 export interface PillData {
   success: boolean;
@@ -62,16 +65,21 @@ export class QueryCodeLensProvider implements vscode.CodeLensProvider {
   }
 
   provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): vscode.CodeLens[] {
-    // Only provide CodeLens for SQL in notebook cells
-    if (document.uri.scheme !== 'vscode-notebook-cell') {
+    if (!isNexqlManagedSqlDocument(document)) {
       return [];
     }
 
-    if (document.languageId !== 'postgres' && document.languageId !== 'sql') {
+    if (
+      document.languageId !== 'postgres' &&
+      document.languageId !== 'sql' &&
+      !isNexqlStudioSqlLanguage(document.languageId)
+    ) {
       return [];
     }
 
-    const text = document.getText().trim();
+    const text = isQueryStudioSqlDocument(document)
+      ? resolveRunnableSqlFromDocument(document).trim()
+      : document.getText().trim();
 
     // Don't show CodeLens for empty cells
     if (!text) {
@@ -141,8 +149,10 @@ export class QueryCodeLensProvider implements vscode.CodeLensProvider {
         new vscode.CodeLens(range, {
           title: '$(type-hierarchy-sub) Explain Analyze',
           tooltip: 'Show query execution plan with actual runtime statistics',
-          command: 'postgres-explorer.explainQuery',
-          arguments: [document.uri, true],
+          command: isQueryStudioSqlDocument(document)
+            ? 'postgres-explorer.queryStudio.explainAnalyze'
+            : 'postgres-explorer.explainQuery',
+          arguments: isQueryStudioSqlDocument(document) ? [] : [document.uri, true],
         }),
       );
     }

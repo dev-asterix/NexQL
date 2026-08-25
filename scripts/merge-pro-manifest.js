@@ -131,7 +131,20 @@ function main() {
     }
   }
 
-  // 8. Merge activationEvents (top-level, not under contributes)
+  // 8. Merge customEditors
+  if (pro.customEditors && Array.isArray(pro.customEditors)) {
+    if (!pkg.contributes.customEditors) {
+      pkg.contributes.customEditors = [];
+    }
+    const existingViewTypes = new Set(pkg.contributes.customEditors.map((e) => e.viewType));
+    for (const editor of pro.customEditors) {
+      if (!existingViewTypes.has(editor.viewType)) {
+        pkg.contributes.customEditors.push(editor);
+      }
+    }
+  }
+
+  // 9. Merge activationEvents (top-level, not under contributes)
   if (pro.activationEvents && Array.isArray(pro.activationEvents)) {
     if (!pkg.activationEvents) {
       pkg.activationEvents = [];

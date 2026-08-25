@@ -34,8 +34,14 @@ import { AuditLogService } from '../../features/audit/AuditLogService';
 import { getSchemaCache } from '../../lib/schema-cache';
 import type { NexqlCellMetadata } from '../../features/notebook/cellMetadata';
 
-/** Streaming NOTICE feed during a single-statement cell run (replaced by final result output). */
-const MIME_NOTICES_LIVE = 'application/vnd.postgres-notebook.notices-live';
+import { QueryExecutionService } from '../../services/QueryExecutionService';
+import { executeQueryImpl, cancelInFlightQuery } from './executeQueryImpl';
+import type {
+  ExecuteQueryHooks,
+  ExecuteQueryRequest,
+  ExecuteQueryResult,
+} from '../../services/execution/queryExecutionTypes';
+import { MIME_NOTICES_LIVE } from '../../services/execution/queryExecutionTypes';
 
 /** Tracks result of a single statement execution */
 interface StatementResult {
@@ -73,15 +79,20 @@ export class SqlExecutor {
   private static readonly REVIEW_THRESHOLD = 3;
 
   /** Shared across notebook/query kernels so cancel works from any handler. */
-  private static readonly inFlight = new Map<string, InFlightExecution>();
-  private static readonly executingCellByNotebook = new Map<string, string>();
+  private static inFlightMap() {
+    return QueryExecutionService.getInFlightMap();
+  }
+
+  private static executingBySessionMap() {
+    return QueryExecutionService.getExecutingBySession();
+  }
 
   private readonly _messaging?: vscode.NotebookRendererMessaging;
   /** notebookUri → cellName → temp table name for named-cell reuse */
   private readonly namedCellTables = new Map<string, Map<string, string>>();
 
   constructor(
-    private readonly _controller: vscode.NotebookController,
+    private readonly _controller?: vscode.NotebookController,
     messaging?: vscode.NotebookRendererMessaging
   ) {
     this._messaging = messaging;
@@ -631,7 +642,17 @@ export class SqlExecutor {
     this.getNamedTableSession(cell.notebook.uri.toString()).set(cellName, table);
   }
 
+  public async executeQuery(
+    request: ExecuteQueryRequest,
+    hooks?: ExecuteQueryHooks,
+  ): Promise<ExecuteQueryResult> {
+    return executeQueryImpl(request, hooks);
+  }
+
   public async executeCell(cell: vscode.NotebookCell) {
+    if (!this._controller) {
+      throw new Error('Notebook controller required for cell execution');
+    }
     debugLog(`SqlExecutor: Starting cell execution. Controller ID: ${this._controller.id}`);
     const execution = this._controller.createNotebookCellExecution(cell);
     const startTime = Date.now();
@@ -639,7 +660,7 @@ export class SqlExecutor {
     await execution.clearOutput();
 
     const cellUri = cell.document.uri.toString();
-    SqlExecutor.executingCellByNotebook.set(cell.notebook.uri.toString(), cellUri);
+    SqlExecutor.executingBySessionMap().set(cell.notebook.uri.toString(), cellUri);
     let inFlightEntry: InFlightExecution | undefined;
     let noticeListener: ((msg: unknown) => void) | undefined;
     let client: import('pg').Client | undefined;
@@ -717,7 +738,7 @@ export class SqlExecutor {
         cancelled: false,
         client,
       };
-      SqlExecutor.inFlight.set(cellUri, inFlightEntry);
+      SqlExecutor.inFlightMap().set(cellUri, inFlightEntry);
 
       // Get PostgreSQL backend PID for query cancellation
       let backendPid: number | null = null;
@@ -1471,8 +1492,8 @@ export class SqlExecutor {
       if (inFlightEntry?.cancelled) {
         ResultCursorService.dropSessionsForCellUri(cellUri);
       }
-      SqlExecutor.inFlight.delete(cellUri);
-      SqlExecutor.executingCellByNotebook.delete(cell.notebook.uri.toString());
+      SqlExecutor.inFlightMap().delete(cellUri);
+      SqlExecutor.executingBySessionMap().delete(cell.notebook.uri.toString());
       if (inFlightEntry) {
         this.postExecutionState(cell, {
           isExecuting: false,
@@ -1525,26 +1546,11 @@ export class SqlExecutor {
   // --- Message Handlers for Execution (Cancel, Updates) ---
 
   public static getExecutingCellUri(notebookUri: string): string | undefined {
-    return SqlExecutor.executingCellByNotebook.get(notebookUri);
+    return SqlExecutor.executingBySessionMap().get(notebookUri);
   }
 
   public static async cancelInFlightForCell(cellUri: string): Promise<void> {
-    const entry = SqlExecutor.inFlight.get(cellUri);
-    if (!entry) {
-      debugWarn(`[SqlExecutor] cancel requested but no in-flight entry for ${cellUri}`);
-      return;
-    }
-    entry.cancelled = true;
-    ResultCursorService.dropSessionsForCellUri(cellUri);
-    debugWarn(
-      `[SqlExecutor] cancelling query cell=${cellUri} pid=${entry.backendPid ?? 'pending'}`,
-    );
-    await SqlExecutor.issueCancelBackend(
-      entry.backendPid,
-      entry.connectionId,
-      entry.databaseName,
-      entry.client,
-    );
+    await cancelInFlightQuery(cellUri);
   }
 
   public getExecutingCellUri(notebookUri: string): string | undefined {

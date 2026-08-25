@@ -294,20 +294,34 @@ export class SqlParser {
    * - Comments (-- and /* ... *\/)
    */
   public static splitSqlStatements(sql: string): string[] {
-    const statements: string[] = [];
+    return SqlParser.splitSqlStatementRanges(sql).map((range) => range.text);
+  }
+
+  /** Statement spans in the original SQL buffer (for cursor-scoped execution). */
+  public static splitSqlStatementRanges(sql: string): Array<{ text: string; start: number; end: number }> {
+    const ranges: Array<{ text: string; start: number; end: number }> = [];
     let currentStatement = '';
+    let statementStart = 0;
     let i = 0;
     let inSingleQuote = false;
     let inDollarQuote = false;
     let dollarQuoteTag = '';
     let inBlockComment = false;
 
+    const pushStatement = (endExclusive: number): void => {
+      const trimmed = currentStatement.trim();
+      if (trimmed) {
+        ranges.push({ text: trimmed, start: statementStart, end: endExclusive });
+      }
+      currentStatement = '';
+      statementStart = endExclusive;
+    };
+
     while (i < sql.length) {
       const char = sql[i];
       const nextChar = i + 1 < sql.length ? sql[i + 1] : '';
       const peek = sql.substring(i, i + 10);
 
-      // Handle block comments /* ... */
       if (!inSingleQuote && !inDollarQuote && char === '/' && nextChar === '*') {
         inBlockComment = true;
         currentStatement += char + nextChar;
@@ -322,9 +336,7 @@ export class SqlParser {
         continue;
       }
 
-      // Handle line comments -- ...
       if (!inSingleQuote && !inDollarQuote && !inBlockComment && char === '-' && nextChar === '-') {
-        // Add rest of line to current statement
         const lineEnd = sql.indexOf('\n', i);
         if (lineEnd === -1) {
           currentStatement += sql.substring(i);
@@ -335,7 +347,6 @@ export class SqlParser {
         continue;
       }
 
-      // Handle dollar-quoted strings
       if (!inSingleQuote && !inBlockComment) {
         const dollarMatch = peek.match(/^(\$[a-zA-Z0-9_]*\$)/);
         if (dollarMatch) {
@@ -356,10 +367,8 @@ export class SqlParser {
         }
       }
 
-      // Handle single-quoted strings
       if (!inDollarQuote && !inBlockComment && char === "'") {
         if (inSingleQuote && nextChar === "'") {
-          // Escaped quote ''
           currentStatement += "''";
           i += 2;
           continue;
@@ -367,14 +376,9 @@ export class SqlParser {
         inSingleQuote = !inSingleQuote;
       }
 
-      // Handle semicolon as statement separator
       if (!inSingleQuote && !inDollarQuote && !inBlockComment && char === ';') {
         currentStatement += char;
-        const trimmed = currentStatement.trim();
-        if (trimmed) {
-          statements.push(trimmed);
-        }
-        currentStatement = '';
+        pushStatement(i + 1);
         i++;
         continue;
       }
@@ -383,13 +387,44 @@ export class SqlParser {
       i++;
     }
 
-    // Add remaining statement if any
-    const trimmed = currentStatement.trim();
-    if (trimmed) {
-      statements.push(trimmed);
+    pushStatement(sql.length);
+    return ranges;
+  }
+
+  /** Statement containing `offset`, or nearest preceding statement when in whitespace. */
+  public static statementAtOffset(sql: string, offset: number): string {
+    const ranges = SqlParser.splitSqlStatementRanges(sql);
+    if (ranges.length === 0) {
+      return sql.trim();
     }
 
-    return statements.filter(s => s.length > 0);
+    const pos = Math.max(0, Math.min(offset, sql.length));
+    for (const range of ranges) {
+      if (pos >= range.start && pos < range.end) {
+        return range.text;
+      }
+    }
+
+    let fallback = ranges[0];
+    for (const range of ranges) {
+      if (range.end <= pos) {
+        fallback = range;
+      } else {
+        break;
+      }
+    }
+    return fallback.text;
+  }
+
+  /** Selected SQL if non-empty; otherwise the statement at the anchor offset. */
+  public static resolveExecutableSqlText(fullText: string, selectionStart: number, selectionEnd: number): string {
+    if (selectionStart !== selectionEnd) {
+      const selected = fullText.slice(selectionStart, selectionEnd).trim();
+      if (selected) {
+        return selected;
+      }
+    }
+    return SqlParser.statementAtOffset(fullText, selectionStart);
   }
 
   /**

@@ -14,7 +14,7 @@ import {
   MaintenanceTemplates,
   validateCategoryItem
 } from './helper';
-import { openOrCreateNotebookWithPicker } from './notebook';
+import { cmdQueryToolFromPalette, openDefaultQueryWorkspace } from './queryWorkspace';
 
 
 
@@ -650,14 +650,23 @@ export async function cmdMaintenanceDatabase(item: DatabaseTreeItem, context: vs
   }
 }
 
-export async function cmdQueryTool(item: DatabaseTreeItem, context: vscode.ExtensionContext) {
+export async function cmdQueryTool(
+  item: DatabaseTreeItem | undefined,
+  context: vscode.ExtensionContext,
+) {
+  if (!item?.connectionId) {
+    await cmdQueryToolFromPalette(context);
+    return;
+  }
+
   let dbConn;
   try {
     dbConn = await getDatabaseConnection(item, validateCategoryItem);
     const { metadata } = dbConn;
 
-    await openOrCreateNotebookWithPicker(
+    await openDefaultQueryWorkspace(
       metadata,
+      context,
       [
         {
           kind: 'markdown',
@@ -671,8 +680,7 @@ export async function cmdQueryTool(item: DatabaseTreeItem, context: vscode.Exten
 SELECT 1;`,
         },
       ],
-      context,
-      `Open or Create Notebook (${item.label})`
+      `Open or Create Notebook (${item.label})`,
     );
   } catch (err: any) {
     await ErrorHandlers.handleCommandError(err, 'open query tool');

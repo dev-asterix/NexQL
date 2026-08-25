@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-
 import { SqlCompletionProvider } from './SqlCompletionProvider';
+import { isQueryStudioSqlDocument } from '../lib/nexqlSqlDocument';
+import { isNexqlStudioSqlLanguage } from '../lib/nexqlStudioSqlLanguage';
 import { SqlParser } from './kernel/SqlParser';
 
 /**
@@ -13,7 +14,16 @@ export class SqlSignatureHelpProvider implements vscode.SignatureHelpProvider {
     _token: vscode.CancellationToken,
     _context: vscode.SignatureHelpContext
   ): vscode.ProviderResult<vscode.SignatureHelp> {
-    if (document.uri.scheme !== 'vscode-notebook-cell' || document.languageId !== 'sql') {
+    const isSqlLike =
+      document.languageId === 'sql' ||
+      document.languageId === 'postgres' ||
+      isNexqlStudioSqlLanguage(document.languageId);
+    if (
+      !isSqlLike ||
+      (document.uri.scheme !== 'vscode-notebook-cell' &&
+        document.uri.scheme !== 'nexql-studio-sql' &&
+        !isQueryStudioSqlDocument(document))
+    ) {
       return undefined;
     }
     const completion = SqlCompletionProvider.getInstance();

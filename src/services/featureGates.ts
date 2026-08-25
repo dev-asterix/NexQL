@@ -37,6 +37,7 @@ export enum ProFeature {
   DbIndexMulti = 'dbIndexMulti',
   DbIndexEmbed = 'dbIndexEmbed',
   AgenticModes = 'agenticModes',
+  QueryStudio = 'queryStudio',
 }
 
 const FEATURE_LABELS: Record<ProFeature, string> = {
@@ -59,6 +60,7 @@ const FEATURE_LABELS: Record<ProFeature, string> = {
   [ProFeature.DbIndexMulti]: 'Multi-Database Indexing',
   [ProFeature.DbIndexEmbed]: 'Semantic Database Indexing',
   [ProFeature.AgenticModes]: 'Agentic Mode Loops',
+  [ProFeature.QueryStudio]: 'Query Studio',
 };
 
 /** Ordering for entitlement comparison: a tier unlocks everything at or below its rank. */

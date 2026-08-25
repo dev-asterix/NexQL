@@ -10,6 +10,8 @@ import { SavedQueryDetailsPanel } from '../features/savedQueries/SavedQueryDetai
 import { ConnectionUtils } from '../utils/connectionUtils';
 import { SecretStorageService } from '../services/SecretStorageService';
 import { NotebookBuilder } from './helper';
+import { isQueryStudioSqlDocument } from '../lib/nexqlSqlDocument';
+import { resolveRunnableSqlFromDocument } from '../lib/resolveRunnableSql';
 
 /**
  * Phase 7 Advanced Power User & AI commands
@@ -644,10 +646,39 @@ export async function showQueryRecommendations(): Promise<void> {
  * Opens a webview form for better UX
  */
 export async function saveQueryToLibraryUI(): Promise<void> {
+  const studioEditor = vscode.window.activeTextEditor;
+  if (studioEditor && isQueryStudioSqlDocument(studioEditor.document)) {
+    const queryText = resolveRunnableSqlFromDocument(studioEditor.document);
+    if (!queryText.trim()) {
+      vscode.window.showWarningMessage('The selected query is empty. Please write a query first.');
+      return;
+    }
+    try {
+      const sidecarUri = vscode.Uri.joinPath(studioEditor.document.uri, '..', 'session.meta.json');
+      const sidecarRaw = await vscode.workspace.fs.readFile(sidecarUri);
+      const sidecar = JSON.parse(Buffer.from(sidecarRaw).toString('utf8')) as {
+        connectionId?: string;
+        database?: string;
+      };
+      const connectionMetadata = {
+        connectionId: sidecar.connectionId,
+        databaseName: sidecar.database,
+      };
+      if (!extensionContext) {
+        vscode.window.showErrorMessage('Extension context not available.');
+        return;
+      }
+      SaveQueryPanel.show(extensionContext.extensionUri, queryText, connectionMetadata, extensionContext);
+    } catch {
+      vscode.window.showWarningMessage('Could not read Query Studio session metadata.');
+    }
+    return;
+  }
+
   const activeEditor = vscode.window.activeNotebookEditor;
   
   if (!activeEditor) {
-    vscode.window.showWarningMessage('No active notebook. Open a .pgsql notebook first.');
+    vscode.window.showWarningMessage('No active notebook or Query Studio editor.');
     return;
   }
 

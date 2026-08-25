@@ -1,0 +1,93 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "NexQL Studio SQL",
+  "scopeName": "source.nexql-studio-sql",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#dollar-strings" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#numbers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.sql",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.sql",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.sql",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            { "name": "constant.character.escape.sql", "match": "''" },
+            { "name": "constant.character.escape.sql", "match": "\\\\." }
+          ]
+        },
+        {
+          "name": "string.quoted.double.sql",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            { "name": "constant.character.escape.sql", "match": "\"\"" },
+            { "name": "constant.character.escape.sql", "match": "\\\\." }
+          ]
+        }
+      ]
+    },
+    "dollar-strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.other.sql",
+          "begin": "(\\$[a-zA-Z_]*\\$)",
+          "end": "\\1",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.string.begin.sql" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.sql" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.other.sql",
+          "match": "(?i)\\b(SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|TABLE|INDEX|VIEW|MATERIALIZED|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|NATURAL|ON|AND|OR|NOT|NULL|IS|IN|AS|DISTINCT|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|UNION|ALL|EXISTS|CASE|WHEN|THEN|ELSE|END|WITH|RECURSIVE|RETURNING|INTO|VALUES|SET|EXPLAIN|ANALYZE|BEGIN|COMMIT|ROLLBACK|GRANT|REVOKE|PUBLIC|SCHEMA|FUNCTION|TRIGGER|PROCEDURE|LATERAL|USING|BETWEEN|LIKE|ILIKE|SIMILAR|TO|TRUE|FALSE|PRIMARY|KEY|FOREIGN|REFERENCES|CONSTRAINT|DEFAULT|CHECK|UNIQUE|SERIAL|BIGSERIAL|ONLY|COALESCE|CAST|FILTER|OVER|PARTITION|WINDOW|ROW|ROWS|RANGE|PRECEDING|FOLLOWING|CURRENT|UNBOUNDED|VACUUM|COPY|DO|IF|ELSIF|LOOP|WHILE|FOR|FOREACH|RAISE|NOTICE|PERFORM|DECLARE|LANGUAGE|PLPGSQL|SECURITY|DEFINER|INVOKER|REPLACE|TEMP|TEMPORARY|UNLOGGED|IF|NOT|EXISTS|CASCADE|RESTRICT|CONCURRENTLY|DEFERRABLE|INITIALLY|DEFERRED|IMMEDIATE|LOCAL|GLOBAL|SESSION|ROLE|USER|DATABASE|EXTENSION|TYPE|DOMAIN|ENUM|SEQUENCE|OWNED|RESTART|INCREMENT|MINVALUE|MAXVALUE|CACHE|CYCLE|OWNED|BY|INHERIT|INCLUDING|EXCLUDING|STORAGE|COMPRESSION|TABLESPACE|ENABLE|DISABLE|RULE|POLICY|ROW|LEVEL|SECURITY|FORCE|NOT|VALID|INVALID|RENAME|COLUMN|ATTACH|DETACH|INHERITS|LIKE|INCLUDING|EXCLUDING|GENERATED|ALWAYS|STORED|IDENTITY|OVERRIDING|SYSTEM|VALUE|COLLATION|COLLATE|ASC|DESC|NULLS|FIRST|LAST|FETCH|NEXT|TIES|OTHERS|ESCAPE|ANY|SOME|ARRAY|UNNEST|LATERAL|ORDINALITY|WITHIN|GROUP|EMPTY|ACTION|MATCH|FULL|PARTIAL|SIMPLE|INITIALLY|DEFERRED|CASCADE|RESTRICT|NO|ACTION|DEFERRABLE|INITIALLY|IMMEDIATE|CONFLICT|NOTHING|DO|UPDATE|EXCLUDED|RETURNING|DEFAULT|OVERRIDING|SYSTEM|VALUE)\\b"
+        },
+        {
+          "name": "keyword.operator.sql",
+          "match": "(::|->>|->|=>|>=|<=|<>|!=|=|<|>|\\+|\\-|\\*|/|\\|\\||\\?|\\:|\\,|\\;|\\(|\\)|\\[|\\]|\\{|\\})"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.sql",
+          "match": "(?i)\\b(BOOLEAN|BOOL|SMALLINT|INT|INTEGER|BIGINT|DECIMAL|NUMERIC|REAL|DOUBLE|PRECISION|FLOAT|SERIAL|BIGSERIAL|MONEY|CHAR|VARCHAR|TEXT|BYTEA|DATE|TIME|TIMETZ|TIMESTAMP|TIMESTAMPTZ|INTERVAL|UUID|JSON|JSONB|XML|POINT|LINE|LSEG|BOX|PATH|POLYGON|CIRCLE|CIDR|INET|MACADDR|MACADDR8|BIT|VARBIT|TSVECTOR|TSQUERY|INT2|INT4|INT8|FLOAT4|FLOAT8|NAME|OID|REGCLASS|REGTYPE|REGPROC|REGOPER|REGOPERATOR|REGNAMESPACE|REGROLE|REGCONFIG|REGDICTIONARY)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.sql",
+          "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
+        }
+      ]
+    }
+  }
+}

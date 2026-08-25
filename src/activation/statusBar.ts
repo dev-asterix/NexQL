@@ -11,6 +11,7 @@ import type { SentinelEnvironment } from '../features/sentinel/types';
 import type { SentinelContext, SentinelSettings } from '../features/sentinel/types';
 import { PlatformConnectionService } from '../services/PlatformConnectionService';
 import { profileDisplayLabel } from '../lib/platform/PlatformProfile';
+import { getStudioSession } from '../services/execution/ExecutionSurface';
 
 /**
  * Manages the notebook status bar items that display connection and database info.
@@ -93,8 +94,17 @@ export class NotebookStatusBar implements vscode.Disposable {
     this.renderTierItem();
   }
 
-  /** Updates the status bar based on the active notebook editor */
+  /** Updates the status bar based on the active notebook or Query Studio editor */
   update(): void {
+    const studioMeta = this.getActiveStudioMetadata();
+    if (studioMeta) {
+      const connection = ConnectionUtils.findConnectionWithFallback(studioMeta.connectionId, studioMeta);
+      if (connection) {
+        this.showConnection(connection, studioMeta);
+        return;
+      }
+    }
+
     const editor = vscode.window.activeNotebookEditor;
 
     if (!this.isPostgresNotebook(editor)) {
@@ -118,6 +128,29 @@ export class NotebookStatusBar implements vscode.Disposable {
       editor.notebook.notebookType === 'postgres-notebook' ||
       editor.notebook.notebookType === 'postgres-query'
     );
+  }
+
+  private getActiveStudioMetadata(): PostgresMetadata | undefined {
+    const ed = vscode.window.activeTextEditor;
+    if (!ed?.document.uri.path.includes('/query-studio/')) {
+      return undefined;
+    }
+    const path = ed.document.uri.path.toLowerCase();
+    if (!path.endsWith('/query.nexql') && !path.endsWith('/query.sql')) {
+      return undefined;
+    }
+    const session = getStudioSession(ed.document.uri);
+    if (!session?.connectionId || !session.database) {
+      return undefined;
+    }
+    const connection = ConnectionUtils.findConnection(session.connectionId);
+    if (!connection) return undefined;
+    return {
+      connectionId: session.connectionId,
+      databaseName: session.database,
+      host: connection.host,
+      port: connection.port,
+    };
   }
 
   private hideNotebookItems(): void {

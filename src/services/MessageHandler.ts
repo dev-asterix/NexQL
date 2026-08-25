@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { HandlerMessageBase } from '../core/types/handlerMessages';
 import { debugWarn } from '../common/logger';
+import type { ExecutionSurface } from './execution/ExecutionSurface';
 
 export interface MessageEnvelope extends HandlerMessageBase {
   [key: string]: unknown;
@@ -10,6 +11,8 @@ export interface MessageHandlerContext {
   editor?: vscode.NotebookEditor | undefined;
   webview?: vscode.Webview | undefined;
   postMessage?: (message: unknown) => Thenable<boolean>;
+  /** Notebook cell or Query Studio session. */
+  surface?: ExecutionSurface;
   [key: string]: unknown;
 }
 

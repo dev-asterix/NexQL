@@ -40,6 +40,28 @@ export interface IChatViewProvider {
   handleOptimizeQuery?(query: string, executionTime: number): void | Promise<void>;
   openBackupToolsAssistant(params: OpenBackupToolsAssistantParams): void | Promise<void>;
   refreshModelInfo(): void;
+  /** Open NexQL Bot in an editor column beside the active editor (Pro). */
+  openInEditor?(column?: vscode.ViewColumn): Promise<void>;
+  setConnectionContext?(
+    connectionId: string,
+    database: string,
+    source: 'explicit' | 'guess',
+  ): void;
+  /** @deprecated Query Studio no longer embeds chat — use openInEditor. */
+  attachStudioAgent?(
+    webview: vscode.Webview,
+    studioUri: vscode.Uri,
+    connectionId: string,
+    database: string,
+  ): void;
+  detachStudioAgent?(webview: vscode.Webview): void;
+  handleWebviewMessage?(webview: vscode.Webview, data: unknown): Promise<void>;
+  confirmWriteViaWebview?(req: {
+    sql: string;
+    reason: string;
+    classification: 'ddl' | 'dml' | 'destructive';
+    impact?: string;
+  }): Promise<{ approved: boolean }>;
 }
 
 /** Command/args/env bundle for spawning nexql-mcp via stdio. */

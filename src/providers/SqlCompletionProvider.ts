@@ -1,10 +1,26 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../services/ConnectionManager';
+import { ConnectionUtils } from '../utils/connectionUtils';
 import { SqlParser } from './kernel/SqlParser';
 import { outputChannel } from '../extension';
 import { getCompletionCandidateSource } from './completion/CompletionCandidateSource';
 import { sqlFormatIdentifier } from './sql-completion-shared';
 import { PG_VERSION_10, PG_VERSION_11, queryServerVersionNum } from '../lib/postgresServerVersion';
+import { getStudioSession } from '../services/execution/ExecutionSurface';
+import { isQueryStudioSqlDocument } from '../lib/nexqlSqlDocument';
+import {
+  ensureQueryStudioSidecarCached,
+  getCachedQueryStudioConnection,
+} from '../lib/queryStudioSidecarCache';
+
+export const QUERY_STUDIO_SQL_GLOB = '**/query-studio/**/query.{nexql,sql}';
+
+/** @deprecated Prefer QUERY_STUDIO_FILE_SQL_SELECTOR + gate — globs miss globalStorage. */
+export const QUERY_STUDIO_SQL_SELECTOR: vscode.DocumentFilter = {
+  scheme: 'file',
+  language: 'sql',
+  pattern: QUERY_STUDIO_SQL_GLOB,
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -424,6 +440,19 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     return SqlCompletionProvider.instance;
   }
 
+  /** Native Query Studio scratch SQL under globalStorage/query-studio/.../query.sql */
+  public static isQueryStudioSqlDocument(document: vscode.TextDocument): boolean {
+    return isQueryStudioSqlDocument(document);
+  }
+
+  public async warmCacheForDocument(document: vscode.TextDocument): Promise<void> {
+    const conn = await this._getSqlConnectionContext(document);
+    if (!conn) {
+      return;
+    }
+    await this.warmCache(conn.connectionId, conn.database);
+  }
+
   /** Shared prefix builder for completion + signature help (notebook-aware). */
   public static sqlTextBeforeCursor(document: vscode.TextDocument, position: vscode.Position): string {
     const lines = document.getText().split(/\r?\n/);
@@ -510,7 +539,7 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
 
   /** Used by signature help and other providers sharing the same notebook connection. */
   public async ensureSchemaForNotebook(document: vscode.TextDocument): Promise<SchemaCache | null> {
-    const conn = await this._getNotebookConnection(document);
+    const conn = await this._getSqlConnectionContext(document);
     if (!conn) {
       return null;
     }
@@ -555,8 +584,13 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     _context: vscode.CompletionContext
   ): Promise<vscode.CompletionItem[]> {
     try {
-      const conn = await this._getNotebookConnection(document);
+      const conn = await this._getSqlConnectionContext(document);
       if (!conn) {
+        if (SqlCompletionProvider.isQueryStudioSqlDocument(document)) {
+          outputChannel?.appendLine(
+            `[SqlCompletion] studio doc without connection context: ${document.uri.fsPath} (lang=${document.languageId})`,
+          );
+        }
         return [];
       }
 
@@ -585,8 +619,12 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
         return this._mergeIndexCandidates(items, document, position, conn, _context.triggerKind === vscode.CompletionTriggerKind.Invoke);
       }
 
-      await this._ensureCache(cacheKey, cfg, database);
-      const cache = this.schemaCache.get(cacheKey) ?? EMPTY_CACHE;
+      const cached = this.schemaCache.get(cacheKey);
+      const cacheFresh = cached && Date.now() - cached.updatedAt < this.CACHE_TTL_MS;
+      if (!cacheFresh) {
+        void this._ensureCache(cacheKey, cfg, database);
+      }
+      const cache = cacheFresh ? cached! : (cached ?? EMPTY_CACHE);
 
       const parsed = this._parseQuery(document, position);
       this._enrichWildcardColumns(parsed, cache.columns);
@@ -2397,6 +2435,45 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
   // Connection / document helpers
   // ===========================================================================
 
+  private async _getSqlConnectionContext(
+    document: vscode.TextDocument,
+  ): Promise<{ connectionId: string; database: string } | null> {
+    if (document.uri.scheme === 'nexql-studio-sql') {
+      const params = new URLSearchParams(document.uri.query);
+      const connectionId = params.get('connectionId');
+      if (!connectionId) {
+        return null;
+      }
+      return { connectionId, database: params.get('database') || 'postgres' };
+    }
+    const studioContext = await this._getQueryStudioConnection(document);
+    if (studioContext) {
+      return studioContext;
+    }
+    return this._getNotebookConnection(document);
+  }
+
+  private async _getQueryStudioConnection(
+    document: vscode.TextDocument,
+  ): Promise<{ connectionId: string; database: string } | null> {
+    if (!SqlCompletionProvider.isQueryStudioSqlDocument(document)) {
+      return null;
+    }
+
+    const session = getStudioSession(document.uri);
+    if (session?.connectionId && session.database) {
+      return { connectionId: session.connectionId, database: session.database };
+    }
+
+    const cached = getCachedQueryStudioConnection(document.uri);
+    if (cached) {
+      return cached;
+    }
+
+    const loaded = await ensureQueryStudioSidecarCached(document.uri);
+    return loaded ?? null;
+  }
+
   private async _getNotebookConnection(document: vscode.TextDocument): Promise<{ connectionId: string; database: string } | null> {
     if (document.uri.scheme !== 'vscode-notebook-cell') {
       return null;
@@ -2421,11 +2498,17 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     username: string;
     name: string;
   } | null> {
-    const connections =
-      (vscode.workspace.getConfiguration().get<Array<{ id: string; host: string; port: number; username: string; name: string }>>(
-        'postgresExplorer.connections'
-      )) || [];
-    return connections.find(c => c.id === connectionId) ?? null;
+    const conn = ConnectionUtils.findConnection(connectionId);
+    if (!conn?.id || !conn.host) {
+      return null;
+    }
+    return {
+      id: conn.id,
+      host: conn.host,
+      port: Number(conn.port) || 5432,
+      username: conn.username ?? 'postgres',
+      name: conn.name ?? conn.id,
+    };
   }
 
   private _getTextBeforeCursor(document: vscode.TextDocument, position: vscode.Position): string {

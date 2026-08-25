@@ -13,6 +13,14 @@ export async function activatePro(
   coreApi.outputChannel.appendLine('Pro features not activated (free build).');
 }
 
+export async function openQueryStudioForMetadata(
+  _metadata: unknown,
+  _context: vscode.ExtensionContext,
+  _sql?: string,
+): Promise<void> {
+  /* Pro only */
+}
+
 /**
  * initializeSyncEngineEarly stub for free builds. The real implementation
  * (packages/pro) starts the Cloud Sync engine synchronously during

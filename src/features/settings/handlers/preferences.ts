@@ -15,6 +15,7 @@ const MCP_INSTALL_COMMANDS: Record<string, string> = {
 const DDL_ENABLED_KEY = 'nexql.ddlViewer.enabled';
 const DDL_OPEN_ON_SELECTION_KEY = 'nexql.ddlViewer.openOnSelection';
 const HISTORY_MAX_ITEMS_KEY = 'postgresExplorer.queryHistory.maxItems';
+const QUERY_DEFAULT_EXPERIENCE_KEY = 'postgresExplorer.query.defaultExperience';
 const AGENTIC_MAX_STEPS_KEY = 'postgresExplorer.ai.agenticMaxSteps';
 const DEFAULT_AGENTIC_MAX_STEPS = 20;
 const MAX_AGENTIC_MAX_STEPS = 100;
@@ -160,6 +161,7 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         ddlEnabled: config.get<boolean>(DDL_ENABLED_KEY, true),
         ddlOpenOnSelection: config.get<boolean>(DDL_OPEN_ON_SELECTION_KEY, true),
         historyMaxItems: config.get<number>(HISTORY_MAX_ITEMS_KEY, 200),
+        queryDefaultExperience: config.get<string>(QUERY_DEFAULT_EXPERIENCE_KEY, 'notebook'),
         agenticMaxSteps: config.get<number>(AGENTIC_MAX_STEPS_KEY, DEFAULT_AGENTIC_MAX_STEPS),
         mcpEnabled,
         mcpBinaryPath,
@@ -198,6 +200,11 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         await vscode.workspace
           .getConfiguration()
           .update(HISTORY_MAX_ITEMS_KEY, n, vscode.ConfigurationTarget.Global);
+      } else if (key === 'queryDefaultExperience') {
+        const experience = value === 'queryStudio' ? 'queryStudio' : 'notebook';
+        await vscode.workspace
+          .getConfiguration()
+          .update(QUERY_DEFAULT_EXPERIENCE_KEY, experience, vscode.ConfigurationTarget.Global);
       } else if (key === 'agenticMaxSteps') {
         const raw = Number(value);
         const n = Number.isFinite(raw) && raw > 0

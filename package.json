@@ -60,6 +60,33 @@
           ".pgsql"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "nexql-studio-sql",
+        "aliases": [
+          "NexQL Studio SQL",
+          "PostgreSQL"
+        ],
+        "extensions": [
+          ".nexql"
+        ],
+        "filenamePatterns": [
+          "**/query-studio/**/query.sql",
+          "**/query-studio/**/query.nexql"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nexql-studio-sql",
+        "scopeName": "source.nexql-studio-sql",
+        "path": "./syntaxes/nexql-studio-sql.tmLanguage.json"
+      },
+      {
+        "language": "postgres",
+        "scopeName": "source.nexql-studio-sql",
+        "path": "./syntaxes/nexql-studio-sql.tmLanguage.json"
       }
     ],
     "colors": [
@@ -1814,6 +1841,41 @@
         "command": "postgres-explorer.sync.excludeItem",
         "title": "Don't Sync This Item",
         "category": "NexQL Sync"
+      },
+      {
+        "command": "postgres-explorer.openQueryStudio",
+        "title": "Open Query Studio",
+        "icon": "$(code-oss)"
+      },
+      {
+        "command": "postgres-explorer.openQueryStudioFromPalette",
+        "title": "Query Studio: Choose Connection & Database…",
+        "icon": "$(code-oss)",
+        "category": "NexQL"
+      },
+      {
+        "command": "postgres-explorer.queryStudio.run",
+        "title": "Query Studio: Run Query",
+        "category": "NexQL",
+        "icon": "$(play)"
+      },
+      {
+        "command": "postgres-explorer.queryStudio.cancel",
+        "title": "Query Studio: Cancel Query",
+        "category": "NexQL",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "postgres-explorer.queryStudio.explain",
+        "title": "Query Studio: Explain Query",
+        "category": "NexQL",
+        "icon": "$(info)"
+      },
+      {
+        "command": "postgres-explorer.queryStudio.explainAnalyze",
+        "title": "Query Studio: Explain Analyze",
+        "category": "NexQL",
+        "icon": "$(type-hierarchy-sub)"
       }
     ],
     "submenus": [
@@ -2553,6 +2615,15 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically build and keep the local database index up to date (structure only) in the background for connected databases. Requires Auto Database Indexing (Sponsor)."
+        },
+        "postgresExplorer.query.defaultExperience": {
+          "type": "string",
+          "enum": [
+            "notebook",
+            "queryStudio"
+          ],
+          "default": "notebook",
+          "description": "Default SQL workspace when opening Query Tool (notebook or Query Studio)."
         }
       }
     },
@@ -2565,6 +2636,17 @@
         },
         "editor.suggestOnTriggerCharacters": true,
         "editor.wordBasedSuggestions": "allDocuments",
+        "editor.acceptSuggestionOnEnter": "on"
+      },
+      "[nexql-studio-sql]": {
+        "editor.quickSuggestions": {
+          "other": true,
+          "comments": false,
+          "strings": true
+        },
+        "editor.suggestOnTriggerCharacters": true,
+        "editor.wordBasedSuggestions": "off",
+        "editor.suggest.showWords": false,
         "editor.acceptSuggestionOnEnter": "on"
       }
     },
@@ -3882,6 +3964,21 @@
           "group": "3_sync@2"
         },
         {
+          "command": "postgres-explorer.openQueryStudio",
+          "when": "view == postgresExplorer && (viewItem == connection || viewItem == connection-pinned)",
+          "group": "inline@1"
+        },
+        {
+          "command": "postgres-explorer.openQueryStudio",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "inline@3"
+        },
+        {
+          "command": "postgres-explorer.openQueryStudio",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@2"
+        },
+        {
           "command": "postgres-explorer.attachToChat",
           "when": "view == postgresExplorer && viewItem =~ /^(table|partition|view|function|procedure|materialized-view|type|foreign-table|schema)(:|$)/",
           "group": "inline@0"
@@ -4171,6 +4268,12 @@
         "command": "postgres-explorer.showDashboard",
         "key": "ctrl+alt+d",
         "mac": "cmd+alt+d"
+      },
+      {
+        "command": "postgres-explorer.queryStudio.run",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "nexql.queryStudioActive && editorTextFocus"
       }
     ],
     "mcpServerDefinitionProviders": [
@@ -4198,12 +4301,15 @@
     "onCommand:nexql.bot.openTab",
     "onCommand:nexql.bot.revealObject",
     "onView:postgresExplorer.chatView",
-    "onCommand:postgres-explorer.showDashboardFromPalette"
+    "onCommand:postgres-explorer.showDashboardFromPalette",
+    "onLanguage:nexql-studio-sql",
+    "onCommand:postgres-explorer.openQueryStudio",
+    "onCommand:postgres-explorer.openQueryStudioFromPalette"
   ],
   "main": "./dist/extension.js",
   "scripts": {
-    "vscode:prepublish": "npm run esbuild-base:pro -- --minify && npm run esbuild-renderer:pro -- --minify && npm run esbuild-erd-webview:pro -- --minify && npm run esbuild-chat-chart -- --minify",
-    "vscode:prepublish:pro": "npm run esbuild-base:pro -- --minify && npm run esbuild-renderer:pro -- --minify && npm run esbuild-erd-webview:pro -- --minify && npm run esbuild-chat-chart -- --minify",
+    "vscode:prepublish": "npm run esbuild-base:pro -- --minify && npm run esbuild-renderer:pro -- --minify && npm run esbuild-erd-webview:pro -- --minify && npm run esbuild-query-studio:pro -- --minify && npm run esbuild-chat-chart -- --minify",
+    "vscode:prepublish:pro": "npm run esbuild-base:pro -- --minify && npm run esbuild-renderer:pro -- --minify && npm run esbuild-erd-webview:pro -- --minify && npm run esbuild-query-studio:pro -- --minify && npm run esbuild-chat-chart -- --minify",
     "prepare:nightly:manifests": "node ./scripts/prepare-nightly-manifests.js",
     "package:prerelease": "npx @vscode/vsce package --pre-release",
     "package:openvsx:nightly": "npx @vscode/vsce package",
@@ -4216,6 +4322,7 @@
     "esbuild-chat-chart": "esbuild ./src/ui/chat-chart/chatChart.ts --bundle --outfile=dist/chat-chart.js --format=iife --platform=browser",
     "build:vscode-stub": "esbuild src/test/unit/mocks/vscode.ts --bundle --platform=node --format=cjs --outfile=src/test/vscode-stub/index.js",
     "esbuild-erd-webview:pro": "esbuild ./packages/pro/src/schemaDesigner/erd/webview/main.ts --bundle --preserve-symlinks --outfile=dist/erd-webview.js --format=iife --platform=browser",
+    "esbuild-query-studio:pro": "esbuild ./packages/pro/src/features/queryStudio/webview/resultsMain.ts --bundle --preserve-symlinks --outfile=dist/query-studio.js --format=iife --platform=browser",
     "copy-templates": "cp -r templates dist/",
     "compile": "tsc -p ./ && npm run esbuild-renderer:free && npm run esbuild-erd-webview && npm run esbuild-chat-chart && npm run copy-templates",
     "compile:pro": "npm run typecheck:pro && npm run esbuild:pro && npm run copy-templates",
@@ -4223,7 +4330,7 @@
     "watch": "tsc -watch -p ./",
     "esbuild": "npm run esbuild:free",
     "esbuild:free": "npm run esbuild-base:free -- --sourcemap && npm run esbuild-renderer:free -- --sourcemap && npm run esbuild-erd-webview:free -- --sourcemap && npm run esbuild-chat-chart -- --sourcemap",
-    "esbuild:pro": "npm run esbuild-base:pro -- --sourcemap && npm run esbuild-renderer:pro -- --sourcemap && npm run esbuild-erd-webview:pro -- --sourcemap && npm run esbuild-chat-chart -- --sourcemap",
+    "esbuild:pro": "npm run esbuild-base:pro -- --sourcemap && npm run esbuild-renderer:pro -- --sourcemap && npm run esbuild-erd-webview:pro -- --sourcemap && npm run esbuild-query-studio:pro -- --sourcemap && npm run esbuild-chat-chart -- --sourcemap",
     "esbuild-watch": "npm run esbuild-base:free -- --sourcemap --watch & npm run esbuild-renderer:free -- --sourcemap --watch & npm run esbuild-erd-webview:free -- --sourcemap --watch & npm run esbuild-chat-chart -- --sourcemap --watch",
     "test": "npm run compile && node --no-experimental-strip-types ./node_modules/mocha/bin/mocha --loader ./node_modules/ts-node/esm/transpile-only.mjs -r tsconfig-paths/register -r src/test/setup.ts 'src/test/unit/**/*.test.ts'",
     "test:unit": "npm run compile && TS_NODE_PROJECT=src/test/tsconfig.json node --no-experimental-strip-types -r ts-node/register/transpile-only -r tsconfig-paths/register -r ./src/test/setup.ts ./node_modules/mocha/bin/mocha --exit 'src/test/unit/**/*.test.ts'",
@@ -4258,6 +4365,12 @@
     "@dbml/core": "^7.1.2",
     "@huggingface/transformers": "^4.2.0",
     "chart.js": "^4.5.1",
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.9",
     "d3-force": "^3.0.0",
     "d3-selection": "^3.0.0",
     "pg": "^8.20.0",
