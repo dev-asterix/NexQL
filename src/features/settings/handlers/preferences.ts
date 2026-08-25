@@ -3,42 +3,14 @@ import type { SettingsHubHostContext, SettingsHubMessage, SettingsSectionHandler
 import type { IMcpServer } from '../../../pro/api';
 import { refreshProcessPathFromShell } from './pathRefresh';
 
+import {
+  buildMcpDownloadCurlCommand,
+} from '../../../utils/mcpInstallGuide';
+
 const MCP_INSTALL_COMMANDS: Record<string, string> = {
   npm: 'npm install -g nexql-mcp',
   cargo: 'cargo install nexql-mcp',
 };
-
-/** `${process.platform}-${process.arch}` → Rust target triple, matching nexql-mcp's release matrix (mcp/.github/workflows/release.yml). */
-const MCP_RELEASE_TRIPLES: Record<string, string> = {
-  'linux-x64': 'x86_64-unknown-linux-gnu',
-  'linux-arm64': 'aarch64-unknown-linux-gnu',
-  'darwin-x64': 'x86_64-apple-darwin',
-  'darwin-arm64': 'aarch64-apple-darwin',
-  'win32-x64': 'x86_64-pc-windows-msvc',
-};
-
-/**
- * Copy-pasteable curl+tar snippet pulling the nexql-mcp release tarball
- * straight from GitHub (github.com/NexQL-OSS/mcp) — an alternative to the
- * npm/cargo buttons for locked-down environments without registry access.
- * `undefined` for OS/arch combos nexql-mcp doesn't publish prebuilt
- * binaries for (UI falls back to npm/cargo only).
- */
-function buildMcpUpdateCurlCommand(version: string): string | undefined {
-  const triple = MCP_RELEASE_TRIPLES[`${process.platform}-${process.arch}`];
-  if (!triple) return undefined;
-  const tag = `v${version}`;
-  const asset = `nexql-mcp-${tag}-${triple}`;
-  const baseUrl = `https://github.com/NexQL-OSS/mcp/releases/download/${tag}/${asset}.tar.gz`;
-  if (process.platform === 'win32') {
-    // curl.exe/tar.exe ship with Windows 10+; extracts to the current dir — move nexql-mcp.exe onto PATH yourself.
-    return (
-      `curl.exe -fsSL -o ${asset}.tar.gz ${baseUrl} && ` +
-      `tar.exe -xzf ${asset}.tar.gz --strip-components=1 ${asset}/nexql-mcp.exe`
-    );
-  }
-  return `curl -fsSL ${baseUrl} | tar -xz --strip-components=1 -C /usr/local/bin ${asset}/nexql-mcp`;
-}
 
 const DDL_ENABLED_KEY = 'nexql.ddlViewer.enabled';
 const DDL_OPEN_ON_SELECTION_KEY = 'nexql.ddlViewer.openOnSelection';
@@ -140,7 +112,7 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
 
   private async sendState(): Promise<void> {
     const config = vscode.workspace.getConfiguration();
-    const mcpEnabled = config.get<boolean>('postgresExplorer.mcp.enabled', false);
+    const mcpEnabled = config.get<boolean>('postgresExplorer.mcp.enabled', true);
     const mcpBinaryPath = config.get<string>('postgresExplorer.mcp.binaryPath', '') || '';
 
     let mcpStarted = false;
@@ -198,7 +170,7 @@ export class PreferencesSectionHandler implements SettingsSectionHandler {
         mcpLatestVersion: latestVersion,
         mcpUpdateAvailable: updateAvailable,
         mcpUpdateCurlCommand:
-          (updateAvailable && latestVersion && buildMcpUpdateCurlCommand(latestVersion)) || '',
+          (updateAvailable && latestVersion && buildMcpDownloadCurlCommand(latestVersion)) || '',
         mcpError,
         mcpSkippedConnections,
         mcpRestartRequired,

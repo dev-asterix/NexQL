@@ -1,0 +1,108 @@
+name: Publish Extension (Nightly)
+
+permissions:
+  contents: read
+
+env:
+  VSCE_VERSION: '2.24.0'
+  OPENVSX_NIGHTLY_NAME: postgres-explorer-nightly
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build from (branch, tag, or SHA). Defaults to main.'
+        required: false
+        default: main
+        type: string
+
+concurrency:
+  group: publish-nightly
+  cancel-in-progress: true
+
+jobs:
+  publish-nightly:
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute nightly version
+        id: nightly_version
+        run: |
+          set -euo pipefail
+          NIGHTLY_VERSION=$(node ./scripts/compute-nightly-version.js)
+          MINOR=$(echo "$NIGHTLY_VERSION" | cut -d. -f2)
+          if [ $((MINOR % 2)) -ne 1 ]; then
+            echo "::error::Nightly published version must have an odd minor (got $NIGHTLY_VERSION)"
+            exit 1
+          fi
+          echo "version=${NIGHTLY_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Using nightly version: ${NIGHTLY_VERSION}"
+
+      - name: Prepare nightly manifests
+        env:
+          NIGHTLY_VERSION: ${{ steps.nightly_version.outputs.version }}
+          OPENVSX_NIGHTLY_NAME: ${{ env.OPENVSX_NIGHTLY_NAME }}
+        run: node ./scripts/prepare-nightly-manifests.js
+
+      - name: Build extension
+        run: npm run vscode:prepublish
+
+      - name: Package VS Code Marketplace nightly
+        id: package_marketplace
+        run: |
+          set -euo pipefail
+          cp package.json package.json.bak
+          cp .nightly/package.marketplace.json package.json
+          VSIX_FILE=$(node -e "const pkg=require('./package.json'); process.stdout.write(\`\${pkg.name}-\${pkg.version}.vsix\`)")
+          npx -y "@vscode/vsce@${VSCE_VERSION}" package --pre-release
+          mv package.json.bak package.json
+          echo "path=${VSIX_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish VS Code Marketplace nightly (pre-release)
+        run: |
+          npx -y "@vscode/vsce@${VSCE_VERSION}" publish \
+            --pre-release \
+            --packagePath "${{ steps.package_marketplace.outputs.path }}" \
+            -p "${{ secrets.VSCE_PAT }}"
+
+      - name: Package Open VSX nightly companion
+        id: package_openvsx
+        run: |
+          set -euo pipefail
+          cp package.json package.json.bak
+          cp .nightly/package.openvsx.json package.json
+          VSIX_FILE=$(node -e "const pkg=require('./package.json'); process.stdout.write(\`\${pkg.name}-\${pkg.version}.vsix\`)")
+          npx -y "@vscode/vsce@${VSCE_VERSION}" package
+          mv package.json.bak package.json
+          echo "path=${VSIX_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Open VSX nightly companion
+        run: |
+          npx -y ovsx publish \
+            "${{ steps.package_openvsx.outputs.path }}" \
+            -p "${{ secrets.OVSX_PAT }}"
+
+      - name: Upload nightly artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-vsix-${{ steps.nightly_version.outputs.version }}
+          path: |
+            ${{ steps.package_marketplace.outputs.path }}
+            ${{ steps.package_openvsx.outputs.path }}
+          retention-days: 30

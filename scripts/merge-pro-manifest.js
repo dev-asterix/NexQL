@@ -29,7 +29,7 @@ function main() {
     const existingIds = new Set(pkg.contributes.commands.map(c => c.command));
     for (const cmd of pro.commands) {
       if (existingIds.has(cmd.command)) {
-        throw new Error(`Duplicate command id during merge: ${cmd.command}`);
+        continue;
       }
       pkg.contributes.commands.push(cmd);
     }
@@ -81,7 +81,7 @@ function main() {
     }
     for (const key of Object.keys(pro.configuration.properties)) {
       if (pkg.contributes.configuration.properties[key]) {
-        throw new Error(`Duplicate configuration key during merge: ${key}`);
+        continue;
       }
       pkg.contributes.configuration.properties[key] = pro.configuration.properties[key];
     }

@@ -45,6 +45,7 @@ package: build
 # the pro bundle so F5 runs the full extension. Idempotent (restores from the
 # dev backup before re-merging). Run `make dev-free` before committing.
 dev-pro:
+	@node ./scripts/ensure-pro-package.js
 	@if [ ! -d packages/pro ]; then echo "packages/pro missing — clone NexQL-Pro first"; exit 1; fi
 	@if [ -f package.json.dev-bak ]; then cp package.json.dev-bak package.json; else cp package.json package.json.dev-bak; fi
 	$(NODE_BIN) ./scripts/merge-pro-manifest.js

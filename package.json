@@ -2439,15 +2439,15 @@
         },
         "postgresExplorer.mcp.enabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "scope": "window",
-          "markdownDescription": "Expose NexQL's read-only database tools as an MCP server by spawning the standalone `nexql-mcp` binary (stdio). VS Code Copilot and other MCP clients discover it via the extension registry. Off by default."
+          "markdownDescription": "Expose NexQL's read-only database tools as an MCP server by spawning `nexql-mcp` via `npx -y nexql-mcp@latest` (stdio). VS Code Copilot and other MCP clients discover it via the extension registry. On by default."
         },
         "postgresExplorer.mcp.binaryPath": {
           "type": "string",
           "default": "",
           "scope": "window",
-          "markdownDescription": "Absolute path to the `nexql-mcp` binary. When empty, NexQL tries the bundled platform binary under `bin/nexql-mcp/`, then `NEXQL_MCP_BIN`, then PATH."
+          "markdownDescription": "Absolute path to a standalone `nexql-mcp` binary. Used as a fallback when Node.js/npx is not available. When empty, NexQL tries `NEXQL_MCP_BIN`, then PATH."
         },
         "postgresExplorer.mcp.maxRows": {
           "type": "number",
@@ -2698,6 +2698,11 @@
           "command": "postgres-explorer.loadSavedQuery",
           "when": "view == postgresExplorer",
           "group": "2_phase7"
+        },
+        {
+          "command": "nexql.bot.openTab",
+          "when": "view == postgresExplorer.chatView",
+          "group": "navigation"
         },
         {
           "command": "nexql.bot.openTab",
@@ -3875,6 +3880,101 @@
           "command": "postgres-explorer.sync.excludeItem",
           "when": "view == postgresExplorer.notebooks && viewItem == notebook-file",
           "group": "3_sync@2"
+        },
+        {
+          "command": "postgres-explorer.attachToChat",
+          "when": "view == postgresExplorer && viewItem =~ /^(table|partition|view|function|procedure|materialized-view|type|foreign-table|schema)(:|$)/",
+          "group": "inline@0"
+        },
+        {
+          "command": "postgres-explorer.showDashboard",
+          "when": "view == postgresExplorer && (viewItem == connection || viewItem == connection-pinned)",
+          "group": "inline@5"
+        },
+        {
+          "command": "postgres-explorer.showDashboard",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@1"
+        },
+        {
+          "command": "postgres-explorer.backupDatabase",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@4"
+        },
+        {
+          "command": "postgres-explorer.restoreDatabase",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@5"
+        },
+        {
+          "command": "postgres-explorer.openErdMulti",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.openTableDesigner",
+          "when": "view == postgresExplorer && viewItem =~ /^(table|partition)(:|$)/",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.importData",
+          "when": "view == postgresExplorer && viewItem =~ /^(table|partition)(:|$)/",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.openSchemaDiff",
+          "when": "view == postgresExplorer && viewItem =~ /^(table|partition)(:|$)/",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.createTableVisual",
+          "when": "view == postgresExplorer && viewItem == schema",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.openSchemaDiff",
+          "when": "view == postgresExplorer && viewItem == schema",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.openErd",
+          "when": "view == postgresExplorer && viewItem == schema",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.importData",
+          "when": "view == postgresExplorer && viewItem == schema",
+          "group": "1_actions"
+        },
+        {
+          "command": "postgres-explorer.dbindex.build",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@9"
+        },
+        {
+          "command": "postgres-explorer.dbindex.openPanel",
+          "when": "view == postgresExplorer && viewItem == database",
+          "group": "1_operations@9.5"
+        },
+        {
+          "command": "postgres-explorer.sync.shareWithTeam",
+          "when": "view == postgresExplorer.savedQueries && viewItem == savedQuery",
+          "group": "3_sync@1"
+        },
+        {
+          "command": "postgres-explorer.sync.excludeItem",
+          "when": "view == postgresExplorer.savedQueries && viewItem == savedQuery",
+          "group": "3_sync@2"
+        },
+        {
+          "command": "postgres-explorer.sync.shareWithTeam",
+          "when": "view == postgresExplorer.notebooks && viewItem == notebook-file",
+          "group": "3_sync@1"
+        },
+        {
+          "command": "postgres-explorer.sync.excludeItem",
+          "when": "view == postgresExplorer.notebooks && viewItem == notebook-file",
+          "group": "3_sync@2"
         }
       ],
       "postgres-explorer.columnScriptsMenu": [
@@ -4000,6 +4100,16 @@
           "command": "postgres-explorer.explainQueryFromCell",
           "when": "notebookType == postgres-notebook && notebookCellType == code",
           "group": "inline/cell@14"
+        },
+        {
+          "command": "postgres-explorer.aiAssist",
+          "when": "notebookType == postgres-notebook && notebookCellType == code",
+          "group": "inline/cell@10"
+        },
+        {
+          "command": "postgres-explorer.chatWithQuery",
+          "when": "notebookType == postgres-notebook && notebookCellType == code",
+          "group": "inline/cell@11"
         },
         {
           "command": "postgres-explorer.aiAssist",

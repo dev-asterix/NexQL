@@ -1,0 +1,156 @@
+name: Publish Extension (Stable)
+
+permissions:
+  contents: write
+
+env:
+  VSCE_VERSION: '2.24.0'
+  EXTENSION_NAME: postgres-explorer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version to republish (e.g. 2.4.0). Must match an existing v* tag.'
+        required: true
+        type: string
+
+concurrency:
+  group: publish-stable-${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release version
+        id: release
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            REF="v${VERSION}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+            REF="${GITHUB_REF_NAME}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+          echo "Publishing stable release ${REF}"
+
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify stable version
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$EXPECTED_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Expected package.json version $EXPECTED_VERSION, found $PKG_VERSION"
+            exit 1
+          fi
+          MINOR=$(echo "$PKG_VERSION" | cut -d. -f2)
+          if [ $((MINOR % 2)) -ne 0 ]; then
+            echo "::error::Stable releases require an even minor version (got $PKG_VERSION)"
+            exit 1
+          fi
+          if ! git rev-parse "${{ steps.release.outputs.ref }}" >/dev/null 2>&1; then
+            echo "::error::Git ref ${{ steps.release.outputs.ref }} does not exist in this repository"
+            exit 1
+          fi
+          echo "Verified stable version v${PKG_VERSION}"
+
+      - name: Package extension
+        run: make package
+
+      - name: Resolve VSIX path
+        id: vsix
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          VSIX_FILE="${EXTENSION_NAME}-${VERSION}.vsix"
+          if [ ! -f "$VSIX_FILE" ]; then
+            echo "::error::Expected VSIX not found: $VSIX_FILE"
+            ls -la *.vsix 2>/dev/null || true
+            exit 1
+          fi
+          echo "path=${VSIX_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-stable-${{ steps.release.outputs.version }}
+          path: ${{ steps.vsix.outputs.path }}
+          retention-days: 90
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          npx -y "@vscode/vsce@${VSCE_VERSION}" publish \
+            --packagePath "${{ steps.vsix.outputs.path }}" \
+            -p "${{ secrets.VSCE_PAT }}"
+
+      - name: Publish to Open VSX Registry
+        run: |
+          npx -y ovsx publish "${{ steps.vsix.outputs.path }}" \
+            -p "${{ secrets.OVSX_PAT }}"
+
+      - name: Extract CHANGELOG section
+        id: changelog
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { capture=1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > "$NOTES_FILE"
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "No CHANGELOG section found for ${VERSION}; falling back to generated notes."
+            echo "use_generated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "use_generated=false" >> "$GITHUB_OUTPUT"
+            echo "notes_file=${NOTES_FILE}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release (from CHANGELOG)
+        if: steps.changelog.outputs.use_generated == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.ref }}
+          name: ${{ steps.release.outputs.ref }}
+          body_path: ${{ steps.changelog.outputs.notes_file }}
+          files: ${{ steps.vsix.outputs.path }}
+          draft: false
+          prerelease: false
+
+      - name: Create GitHub Release (generated notes)
+        if: steps.changelog.outputs.use_generated == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.ref }}
+          name: ${{ steps.release.outputs.ref }}
+          generate_release_notes: true
+          files: ${{ steps.vsix.outputs.path }}
+          draft: false
+          prerelease: false
